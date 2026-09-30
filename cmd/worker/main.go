@@ -9,6 +9,8 @@ import (
 
 	"go.uber.org/fx"
 
+	_ "github.com/joho/godotenv/autoload"
+
 	"github.com/maaarkin/jungleplatform/internal/platform/config"
 	"github.com/maaarkin/jungleplatform/internal/platform/logger"
 )

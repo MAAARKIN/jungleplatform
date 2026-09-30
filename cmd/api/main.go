@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"os"
 
+	_ "github.com/joho/godotenv/autoload"
+
 	"github.com/maaarkin/jungleplatform/internal/app"
 	"github.com/maaarkin/jungleplatform/internal/platform/config"
 )

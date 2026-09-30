@@ -1,0 +1,18 @@
+# Local agent/tooling artifacts
+/docs
+/.superpowers/
+/.vscode
+
+# Build outputs
+*.exe
+/api
+/worker
+/migrations
+
+# Environment (local values)
+.env
+.env.local
+
+# IDE/OS noise
+.DS_Store
+Thumbs.db

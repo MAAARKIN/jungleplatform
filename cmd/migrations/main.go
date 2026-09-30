@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"os"
 
+	_ "github.com/joho/godotenv/autoload"
+
 	"github.com/maaarkin/jungleplatform/db/migrations"
 	"github.com/maaarkin/jungleplatform/internal/platform/migrate"
 )
