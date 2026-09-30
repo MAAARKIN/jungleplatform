@@ -15,7 +15,7 @@ services:
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.3
-    command: start-dev --import-realm
+    command: start-dev --import-realm --health-enabled=true
     environment:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
@@ -24,7 +24,7 @@ services:
     ports:
       - "8180:8080"
     healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && echo -e 'GET /health/ready HTTP/1.1\\nHost: localhost\\nConnection: close\\n\\n' >&3 && cat <&3 | grep -q '\"status\": \"UP\"'"]
+      test: ["CMD", "/bin/bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000"]
       interval: 5s
       timeout: 5s
       retries: 30
