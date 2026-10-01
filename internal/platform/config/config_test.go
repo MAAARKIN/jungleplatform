@@ -10,7 +10,7 @@ import (
 func setEnvs(t *testing.T, kv map[string]string) {
 	t.Helper()
 	for _, e := range []string{
-		"HTTP_ADDR", "POSTGRES_DSN", "SQS_ENDPOINT", "SQS_QUEUE_URL", "SQS_DLQ_URL",
+		"HTTP_ADDR", "POSTGRES_DSN", "SQS_ENDPOINT", "SQS_QUEUE_URL", "SQS_DLQ_URL", "EVENTS_QUEUE_URL",
 		"KEYCLOAK_ISSUER_URL", "KEYCLOAK_CLIENT_ID", "KEYCLOAK_CLIENT_SECRET",
 		"WORKER_MODE", "SHUTDOWN_GRACE",
 	} {
@@ -27,6 +27,7 @@ func validEnvs() map[string]string {
 		"SQS_ENDPOINT":           "http://localhost:4566",
 		"SQS_QUEUE_URL":          "http://localhost:4566/000000000000/wager-transactions.fifo",
 		"SQS_DLQ_URL":            "http://localhost:4566/000000000000/wager-transactions-dlq.fifo",
+		"EVENTS_QUEUE_URL":       "http://localhost:4566/000000000000/wager-events.fifo",
 		"KEYCLOAK_ISSUER_URL":    "http://localhost:8180/realms/jungle",
 		"KEYCLOAK_CLIENT_ID":     "provider-a",
 		"KEYCLOAK_CLIENT_SECRET": "secret",
@@ -54,7 +55,7 @@ func TestLoadOverrides(t *testing.T) {
 	setEnvs(t, map[string]string{
 		"HTTP_ADDR": ":9090", "SHUTDOWN_GRACE": "10s", "WORKER_MODE": "api",
 		"POSTGRES_DSN": "postgres://x", "SQS_ENDPOINT": "http://sqs",
-		"SQS_QUEUE_URL": "q", "SQS_DLQ_URL": "d",
+		"SQS_QUEUE_URL": "q", "SQS_DLQ_URL": "d", "EVENTS_QUEUE_URL": "e",
 		"KEYCLOAK_ISSUER_URL": "http://kc", "KEYCLOAK_CLIENT_ID": "c",
 		"KEYCLOAK_CLIENT_SECRET": "s",
 	})

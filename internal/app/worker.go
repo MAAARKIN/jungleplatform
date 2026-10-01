@@ -12,7 +12,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"go.uber.org/fx"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/maaarkin/jungleplatform/internal/domain"
+	"github.com/maaarkin/jungleplatform/internal/outbox"
 	"github.com/maaarkin/jungleplatform/internal/platform/config"
 	"github.com/maaarkin/jungleplatform/internal/transport/sqsconsumer"
 	"github.com/maaarkin/jungleplatform/internal/usecase"
@@ -57,8 +60,20 @@ func workerProviders() []any {
 	return []any{
 		newSQSClient,
 		newConsumer,
+		newOutboxPublisher,
 		newWorkerHook,
 	}
+}
+
+// newOutboxPublisher builds the competing publisher for the events queue.
+func newOutboxPublisher(
+	pool *pgxpool.Pool,
+	repo domain.OutboxRepo,
+	client *sqs.Client,
+	cfg config.Config,
+	log *slog.Logger,
+) *outbox.Publisher {
+	return outbox.NewPublisher(pool, repo, client, cfg.EventsQueueURL, "outbox-publisher", log, time.Second)
 }
 
 func newConsumer(
@@ -80,7 +95,7 @@ type workerHook struct {
 }
 
 func newWorkerHook() *workerHook {
-	return &workerHook{done: make(chan error, 1)}
+	return &workerHook{done: make(chan error, 2)}
 }
 
 type workerDeps struct {
@@ -88,6 +103,7 @@ type workerDeps struct {
 	Lifecycle fx.Lifecycle
 	Hook      *workerHook
 	Consumer  *sqsconsumer.Consumer
+	Publisher *outbox.Publisher
 }
 
 func runWorkers(d workerDeps) {
@@ -97,6 +113,7 @@ func runWorkers(d workerDeps) {
 			d.Hook.cancel = cancel
 			d.Hook.started = true
 			go func() { d.Hook.done <- d.Consumer.Run(ctx) }()
+			go func() { d.Hook.done <- d.Publisher.Run(ctx) }()
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {

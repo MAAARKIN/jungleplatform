@@ -14,6 +14,7 @@ type Config struct {
 	SQSEndpoint          string
 	SQSQueueURL          string
 	SQSDLQURL            string
+	EventsQueueURL       string
 	KeycloakIssuerURL    string
 	KeycloakJWKSURL      string
 	KeycloakClientID     string
@@ -37,6 +38,7 @@ func Load() (Config, error) {
 		SQSEndpoint:          os.Getenv("SQS_ENDPOINT"),
 		SQSQueueURL:          os.Getenv("SQS_QUEUE_URL"),
 		SQSDLQURL:            os.Getenv("SQS_DLQ_URL"),
+		EventsQueueURL:       os.Getenv("EVENTS_QUEUE_URL"),
 		KeycloakIssuerURL:    os.Getenv("KEYCLOAK_ISSUER_URL"),
 		KeycloakJWKSURL:      os.Getenv("KEYCLOAK_JWKS_URL"),
 		KeycloakClientID:     os.Getenv("KEYCLOAK_CLIENT_ID"),
@@ -50,6 +52,7 @@ func Load() (Config, error) {
 		"SQS_ENDPOINT":           cfg.SQSEndpoint,
 		"SQS_QUEUE_URL":          cfg.SQSQueueURL,
 		"SQS_DLQ_URL":            cfg.SQSDLQURL,
+		"EVENTS_QUEUE_URL":       cfg.EventsQueueURL,
 		"KEYCLOAK_ISSUER_URL":    cfg.KeycloakIssuerURL,
 		"KEYCLOAK_CLIENT_ID":     cfg.KeycloakClientID,
 		"KEYCLOAK_CLIENT_SECRET": cfg.KeycloakClientSecret,
