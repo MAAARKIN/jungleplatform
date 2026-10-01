@@ -14,3 +14,5 @@ var ErrReferenceNotFound = errors.New("domain: referenced transaction not found"
 var ErrReferenceUnsuccessful = errors.New("domain: referenced transaction did not succeed")
 var ErrMissingReference = errors.New("domain: reference external transaction id is required")
 var ErrReferenceMismatch = errors.New("domain: reference does not match the operation")
+
+var ErrNotFound = errors.New("domain: not found")

@@ -11,10 +11,10 @@ import (
 	"github.com/maaarkin/jungleplatform/internal/platform/migrate"
 )
 
-const testDSN = "postgres://jungle:jungle@localhost:5432/jungle?sslmode=disable"
+const testDSN = "postgres://jungle:jungle@localhost:5432/jungle_test?sslmode=disable"
 
 func dsn(t *testing.T) string {
-	if v := os.Getenv("POSTGRES_DSN"); v != "" {
+	if v := os.Getenv("TEST_POSTGRES_DSN"); v != "" {
 		return v
 	}
 	return testDSN
