@@ -58,3 +58,18 @@ func isUniqueViolation(err error, constraint string) bool {
 	}
 	return constraint == "" || pgErr.ConstraintName == constraint
 }
+
+// TxManager implements domain.TxManager over the pool.
+type TxManager struct {
+	pool *pgxpool.Pool
+}
+
+// NewTxManager builds the transaction manager over the given pool.
+func NewTxManager(pool *pgxpool.Pool) *TxManager {
+	return &TxManager{pool: pool}
+}
+
+// WithinTx runs fn inside one SQL transaction.
+func (m *TxManager) WithinTx(ctx context.Context, fn func(ctx context.Context) error) error {
+	return WithinTx(ctx, m.pool, fn)
+}

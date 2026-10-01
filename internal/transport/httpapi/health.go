@@ -23,12 +23,17 @@ func NewHealthHandler(ready ReadinessFunc) *HealthHandler {
 	return &HealthHandler{ready: ready}
 }
 
-// Routes returns the health routes mounted under /health.
+// Routes returns the health routes as a standalone router.
 func (h *HealthHandler) Routes() chi.Router {
 	r := chi.NewRouter()
+	h.Register(r)
+	return r
+}
+
+// Register mounts the health routes onto an existing router.
+func (h *HealthHandler) Register(r chi.Router) {
 	r.Get("/health/live", h.live)
 	r.Get("/health/ready", h.readyEndpoint)
-	return r
 }
 
 func (h *HealthHandler) live(w http.ResponseWriter, _ *http.Request) {

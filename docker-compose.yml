@@ -39,7 +39,7 @@ services:
     volumes:
       - ./docker/localstack/init.sh:/etc/localstack/init/ready.d/init.sh
     healthcheck:
-      test: ["CMD-SHELL", "curl -s http://localhost:4566/_localstack/health | grep -q '\"sqs\": \"running\"'"]
+      test: ["CMD-SHELL", "curl -s http://localhost:4566/_localstack/health | grep -qE '\"sqs\": \"(running|available)\"'"]
       interval: 3s
       timeout: 3s
       retries: 20
@@ -54,7 +54,8 @@ services:
       SQS_ENDPOINT: http://localstack:4566
       SQS_QUEUE_URL: http://localstack:4566/000000000000/wager-transactions.fifo
       SQS_DLQ_URL: http://localstack:4566/000000000000/wager-transactions-dlq.fifo
-      KEYCLOAK_ISSUER_URL: http://keycloak:8080/realms/jungle
+      KEYCLOAK_ISSUER_URL: http://localhost:8180/realms/jungle
+      KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/jungle/protocol/openid-connect/certs
       KEYCLOAK_CLIENT_ID: internal
       KEYCLOAK_CLIENT_SECRET: internal-secret
     depends_on:
@@ -76,7 +77,8 @@ services:
       SQS_ENDPOINT: http://localstack:4566
       SQS_QUEUE_URL: http://localstack:4566/000000000000/wager-transactions.fifo
       SQS_DLQ_URL: http://localstack:4566/000000000000/wager-transactions-dlq.fifo
-      KEYCLOAK_ISSUER_URL: http://keycloak:8080/realms/jungle
+      KEYCLOAK_ISSUER_URL: http://localhost:8180/realms/jungle
+      KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/jungle/protocol/openid-connect/certs
       KEYCLOAK_CLIENT_ID: internal
       KEYCLOAK_CLIENT_SECRET: internal-secret
     depends_on:

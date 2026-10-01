@@ -15,6 +15,7 @@ type Config struct {
 	SQSQueueURL          string
 	SQSDLQURL            string
 	KeycloakIssuerURL    string
+	KeycloakJWKSURL      string
 	KeycloakClientID     string
 	KeycloakClientSecret string
 	WorkerMode           string
@@ -37,6 +38,7 @@ func Load() (Config, error) {
 		SQSQueueURL:          os.Getenv("SQS_QUEUE_URL"),
 		SQSDLQURL:            os.Getenv("SQS_DLQ_URL"),
 		KeycloakIssuerURL:    os.Getenv("KEYCLOAK_ISSUER_URL"),
+		KeycloakJWKSURL:      os.Getenv("KEYCLOAK_JWKS_URL"),
 		KeycloakClientID:     os.Getenv("KEYCLOAK_CLIENT_ID"),
 		KeycloakClientSecret: os.Getenv("KEYCLOAK_CLIENT_SECRET"),
 		WorkerMode:           env("WORKER_MODE", "worker"),

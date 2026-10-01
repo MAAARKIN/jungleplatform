@@ -11,16 +11,16 @@ import (
 
 func externalInput(kind domain.Kind, m domain.Money) domain.ExternalTransactionInput {
 	return domain.ExternalTransactionInput{
-		ProviderID:     "provider-a",
-		ExternalTransactionID:     "tx-1",
-		IdempotencyKey: "provider-a:tx-1",
-		PayloadHash:    "abc123",
-		PlayerID:       "player-1",
-		WalletID:       "wallet-1",
-		RoundID:        "round-1",
-		GameID:         "fortune-chimp",
-		Kind:           kind,
-		Money:          m,
+		ProviderID:            "provider-a",
+		ExternalTransactionID: "tx-1",
+		IdempotencyKey:        "provider-a:tx-1",
+		PayloadHash:           "abc123",
+		PlayerID:              "player-1",
+		WalletID:              "wallet-1",
+		RoundID:               "round-1",
+		GameID:                "fortune-chimp",
+		Kind:                  kind,
+		Money:                 m,
 	}
 }
 
@@ -306,7 +306,7 @@ func TestRehydrateRoundTrip(t *testing.T) {
 		ID:                             tx.ID(),
 		Source:                         tx.Source(),
 		ProviderID:                     tx.ProviderID(),
-		ExternalTransactionID:                     tx.ExternalTransactionID(),
+		ExternalTransactionID:          tx.ExternalTransactionID(),
 		IdempotencyKey:                 tx.IdempotencyKey(),
 		PayloadHash:                    tx.PayloadHash(),
 		PlayerID:                       tx.PlayerID(),
@@ -351,22 +351,22 @@ func TestRehydrateKeepsProcessedState(t *testing.T) {
 		t.Fatal(err)
 	}
 	restored, err := domain.RehydrateTransaction(domain.TransactionState{
-		ID:             tx.ID(),
-		Source:         tx.Source(),
-		ProviderID:     tx.ProviderID(),
-		ExternalTransactionID:     tx.ExternalTransactionID(),
-		IdempotencyKey: tx.IdempotencyKey(),
-		PayloadHash:    tx.PayloadHash(),
-		PlayerID:       tx.PlayerID(),
-		WalletID:       tx.WalletID(),
-		RoundID:        tx.RoundID(),
-		GameID:         tx.GameID(),
-		Kind:           tx.Kind(),
-		Money:          tx.Money(),
-		Status:         tx.Status(),
-		ResultBalance:  tx.ResultBalance(),
-		CreatedAt:      tx.CreatedAt(),
-		UpdatedAt:      tx.UpdatedAt(),
+		ID:                    tx.ID(),
+		Source:                tx.Source(),
+		ProviderID:            tx.ProviderID(),
+		ExternalTransactionID: tx.ExternalTransactionID(),
+		IdempotencyKey:        tx.IdempotencyKey(),
+		PayloadHash:           tx.PayloadHash(),
+		PlayerID:              tx.PlayerID(),
+		WalletID:              tx.WalletID(),
+		RoundID:               tx.RoundID(),
+		GameID:                tx.GameID(),
+		Kind:                  tx.Kind(),
+		Money:                 tx.Money(),
+		Status:                tx.Status(),
+		ResultBalance:         tx.ResultBalance(),
+		CreatedAt:             tx.CreatedAt(),
+		UpdatedAt:             tx.UpdatedAt(),
 	})
 	if err != nil {
 		t.Fatalf("RehydrateTransaction: %v", err)
@@ -383,21 +383,21 @@ func TestRehydrateTransactionRejectsInvalidState(t *testing.T) {
 	valid := func() domain.TransactionState {
 		in := externalInput(domain.KindBet, mustMoney(t, 2500, domain.BRL))
 		return domain.TransactionState{
-			ID:             "tx-internal",
-			Source:         domain.SourceExternal,
-			ProviderID:     in.ProviderID,
-			ExternalTransactionID:     in.ExternalTransactionID,
-			IdempotencyKey: in.IdempotencyKey,
-			PayloadHash:    in.PayloadHash,
-			PlayerID:       in.PlayerID,
-			WalletID:       in.WalletID,
-			RoundID:        in.RoundID,
-			GameID:         in.GameID,
-			Kind:           in.Kind,
-			Money:          in.Money,
-			Status:         domain.StatusPending,
-			CreatedAt:      fixedNow,
-			UpdatedAt:      fixedNow,
+			ID:                    "tx-internal",
+			Source:                domain.SourceExternal,
+			ProviderID:            in.ProviderID,
+			ExternalTransactionID: in.ExternalTransactionID,
+			IdempotencyKey:        in.IdempotencyKey,
+			PayloadHash:           in.PayloadHash,
+			PlayerID:              in.PlayerID,
+			WalletID:              in.WalletID,
+			RoundID:               in.RoundID,
+			GameID:                in.GameID,
+			Kind:                  in.Kind,
+			Money:                 in.Money,
+			Status:                domain.StatusPending,
+			CreatedAt:             fixedNow,
+			UpdatedAt:             fixedNow,
 		}
 	}
 

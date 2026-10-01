@@ -2,11 +2,8 @@
 package main
 
 import (
-	"context"
 	"log/slog"
 	"os"
-
-	_ "github.com/joho/godotenv/autoload"
 
 	"github.com/maaarkin/jungleplatform/internal/app"
 	"github.com/maaarkin/jungleplatform/internal/platform/config"
@@ -18,5 +15,5 @@ func main() {
 		slog.Error("invalid configuration", "error", err)
 		os.Exit(1)
 	}
-	app.New(cfg, func(context.Context) error { return nil }).Run()
+	app.New(cfg).Run()
 }
