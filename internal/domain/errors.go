@@ -16,3 +16,5 @@ var ErrMissingReference = errors.New("domain: reference external transaction id 
 var ErrReferenceMismatch = errors.New("domain: reference does not match the operation")
 
 var ErrNotFound = errors.New("domain: not found")
+var ErrDuplicateLedgerEntry = errors.New("domain: ledger entry already exists for this transaction")
+var ErrMessageHashMismatch = errors.New("domain: inbox message hash mismatch on re-delivery")

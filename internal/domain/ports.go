@@ -63,11 +63,19 @@ type OutboxRepo interface {
 	Enqueue(ctx context.Context, e Event) error
 	// ClaimBatch claims pending events for one publisher using a row lock
 	// (FOR UPDATE SKIP LOCKED) and a lease on next_attempt_at, so abandoned
-	// work is re-claimed by another instance after the lease expires.
-	ClaimBatch(ctx context.Context, publisherID string, limit int) ([]Event, error)
+	// work is re-claimed by another instance after the lease expires. It
+	// returns the raw serialized envelopes plus their ids for publication.
+	ClaimBatch(ctx context.Context, publisherID string, limit int) ([]OutboxMessage, error)
 	MarkPublished(ctx context.Context, eventID string, at time.Time) error
 	// Reschedule requeues a failed event with exponential backoff.
 	Reschedule(ctx context.Context, eventID string, next time.Time, attempts int) error
+}
+
+// OutboxMessage is one claimed, not-yet-published event: its stable id and
+// the immutable serialized envelope.
+type OutboxMessage struct {
+	EventID string
+	Payload []byte
 }
 
 // Reconstructor rebuilds a wallet balance from the ledger for reconciliation.

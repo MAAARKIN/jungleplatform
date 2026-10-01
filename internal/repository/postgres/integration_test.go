@@ -211,3 +211,5 @@ func TestUpdatePersistsNewBalanceAndVersion(t *testing.T) {
 		t.Errorf("persisted = %d v%d, want 97500 v2", got.Balance().Units(), got.Version())
 	}
 }
+
+var fixedNow = time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)

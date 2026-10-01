@@ -3,6 +3,8 @@ package domain
 import (
 	"fmt"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type Direction string
@@ -17,6 +19,7 @@ const (
 // according to the direction. LOSS and rejected operations never produce
 // entries. Persistence must forbid UPDATE and DELETE.
 type LedgerEntry struct {
+	id            string
 	walletID      string
 	transactionID string
 	direction     Direction
@@ -26,8 +29,22 @@ type LedgerEntry struct {
 	createdAt     time.Time
 }
 
-// NewLedgerEntry builds and validates one append-only entry.
+// NewLedgerEntry builds and validates one append-only entry, assigning a new id.
 func NewLedgerEntry(walletID, transactionID string, dir Direction, money, balanceBefore, balanceAfter Money) (LedgerEntry, error) {
+	return buildLedgerEntry(uuid.NewString(), walletID, transactionID, dir, money, balanceBefore, balanceAfter, time.Now().UTC())
+}
+
+// RehydrateLedgerEntry rebuilds a persisted entry without revalidating the
+// movement; it still verifies the arithmetic invariant so a corrupt row never
+// becomes a live value.
+func RehydrateLedgerEntry(id, walletID, transactionID string, dir Direction, money, balanceBefore, balanceAfter Money, createdAt time.Time) (LedgerEntry, error) {
+	return buildLedgerEntry(id, walletID, transactionID, dir, money, balanceBefore, balanceAfter, createdAt)
+}
+
+func buildLedgerEntry(id, walletID, transactionID string, dir Direction, money, balanceBefore, balanceAfter Money, createdAt time.Time) (LedgerEntry, error) {
+	if id == "" {
+		return LedgerEntry{}, fmt.Errorf("%w: entry id is required", ErrInvalidInput)
+	}
 	if walletID == "" || transactionID == "" {
 		return LedgerEntry{}, fmt.Errorf("%w: wallet and transaction are required", ErrInvalidInput)
 	}
@@ -50,15 +67,19 @@ func NewLedgerEntry(walletID, transactionID string, dir Direction, money, balanc
 		return LedgerEntry{}, fmt.Errorf("%w: balanceAfter must equal balanceBefore %s money", ErrInvalidInput, dir)
 	}
 	return LedgerEntry{
+		id:            id,
 		walletID:      walletID,
 		transactionID: transactionID,
 		direction:     dir,
 		money:         money,
 		balanceBefore: balanceBefore,
 		balanceAfter:  balanceAfter,
-		createdAt:     time.Now().UTC(),
+		createdAt:     createdAt,
 	}, nil
 }
+
+// ID returns the entry identifier.
+func (e LedgerEntry) ID() string { return e.id }
 
 // WalletID returns the affected wallet.
 func (e LedgerEntry) WalletID() string { return e.walletID }

@@ -12,7 +12,7 @@ import (
 func externalInput(kind domain.Kind, m domain.Money) domain.ExternalTransactionInput {
 	return domain.ExternalTransactionInput{
 		ProviderID:     "provider-a",
-		ExternalID:     "tx-1",
+		ExternalTransactionID:     "tx-1",
 		IdempotencyKey: "provider-a:tx-1",
 		PayloadHash:    "abc123",
 		PlayerID:       "player-1",
@@ -50,7 +50,7 @@ func TestExternalTransactionCarriesAllFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewExternalTransaction: %v", err)
 	}
-	if tx.ProviderID() != "provider-a" || tx.ExternalID() != "tx-1" || tx.IdempotencyKey() != "provider-a:tx-1" {
+	if tx.ProviderID() != "provider-a" || tx.ExternalTransactionID() != "tx-1" || tx.IdempotencyKey() != "provider-a:tx-1" {
 		t.Error("external identity fields lost")
 	}
 	if tx.PayloadHash() != "abc123" || tx.PlayerID() != "player-1" || tx.WalletID() != "wallet-1" {
@@ -80,7 +80,7 @@ func TestExternalTransactionRejectsRequiredFields(t *testing.T) {
 	base := externalInput(domain.KindBet, mustMoney(t, 2500, domain.BRL))
 	for field, mutate := range map[string]func(*domain.ExternalTransactionInput){
 		"providerId":     func(i *domain.ExternalTransactionInput) { i.ProviderID = "" },
-		"externalId":     func(i *domain.ExternalTransactionInput) { i.ExternalID = "" },
+		"externalId":     func(i *domain.ExternalTransactionInput) { i.ExternalTransactionID = "" },
 		"idempotencyKey": func(i *domain.ExternalTransactionInput) { i.IdempotencyKey = "" },
 		"payloadHash":    func(i *domain.ExternalTransactionInput) { i.PayloadHash = "" },
 		"playerId":       func(i *domain.ExternalTransactionInput) { i.PlayerID = "" },
@@ -158,7 +158,7 @@ func TestOpeningTransactionInternal(t *testing.T) {
 	if tx.Money().Units() != 100000 {
 		t.Errorf("money = %d", tx.Money().Units())
 	}
-	if tx.ProviderID() != "" || tx.ExternalID() != "" || tx.IdempotencyKey() != "" || tx.PayloadHash() != "" {
+	if tx.ProviderID() != "" || tx.ExternalTransactionID() != "" || tx.IdempotencyKey() != "" || tx.PayloadHash() != "" {
 		t.Error("opening must not carry external metadata")
 	}
 	if tx.RoundID() != "" || tx.GameID() != "" || tx.ReferenceExternalTransactionID() != "" {
@@ -306,7 +306,7 @@ func TestRehydrateRoundTrip(t *testing.T) {
 		ID:                             tx.ID(),
 		Source:                         tx.Source(),
 		ProviderID:                     tx.ProviderID(),
-		ExternalID:                     tx.ExternalID(),
+		ExternalTransactionID:                     tx.ExternalTransactionID(),
 		IdempotencyKey:                 tx.IdempotencyKey(),
 		PayloadHash:                    tx.PayloadHash(),
 		PlayerID:                       tx.PlayerID(),
@@ -354,7 +354,7 @@ func TestRehydrateKeepsProcessedState(t *testing.T) {
 		ID:             tx.ID(),
 		Source:         tx.Source(),
 		ProviderID:     tx.ProviderID(),
-		ExternalID:     tx.ExternalID(),
+		ExternalTransactionID:     tx.ExternalTransactionID(),
 		IdempotencyKey: tx.IdempotencyKey(),
 		PayloadHash:    tx.PayloadHash(),
 		PlayerID:       tx.PlayerID(),
@@ -386,7 +386,7 @@ func TestRehydrateTransactionRejectsInvalidState(t *testing.T) {
 			ID:             "tx-internal",
 			Source:         domain.SourceExternal,
 			ProviderID:     in.ProviderID,
-			ExternalID:     in.ExternalID,
+			ExternalTransactionID:     in.ExternalTransactionID,
 			IdempotencyKey: in.IdempotencyKey,
 			PayloadHash:    in.PayloadHash,
 			PlayerID:       in.PlayerID,

@@ -44,7 +44,7 @@ var externalKinds = map[Kind]bool{
 // externally originated operation (HTTP or SQS).
 type ExternalTransactionInput struct {
 	ProviderID                     string
-	ExternalID                     string
+	ExternalTransactionID          string
 	IdempotencyKey                 string
 	PayloadHash                    string
 	PlayerID                       string
@@ -61,7 +61,7 @@ type TransactionState struct {
 	ID                             string
 	Source                         Source
 	ProviderID                     string
-	ExternalID                     string
+	ExternalTransactionID          string
 	IdempotencyKey                 string
 	PayloadHash                    string
 	PlayerID                       string
@@ -86,7 +86,7 @@ type WagerTransaction struct {
 	id                             string
 	source                         Source
 	providerID                     string
-	externalID                     string
+	externalTransactionID          string
 	idempotencyKey                 string
 	payloadHash                    string
 	playerID                       string
@@ -116,7 +116,7 @@ func NewExternalTransaction(in ExternalTransactionInput, now time.Time) (*WagerT
 	if !externalKinds[in.Kind] {
 		return nil, fmt.Errorf("%w: unknown kind %q", ErrInvalidInput, in.Kind)
 	}
-	if in.ProviderID == "" || in.ExternalID == "" || in.IdempotencyKey == "" ||
+	if in.ProviderID == "" || in.ExternalTransactionID == "" || in.IdempotencyKey == "" ||
 		in.PayloadHash == "" || in.PlayerID == "" || in.WalletID == "" ||
 		in.RoundID == "" || in.GameID == "" {
 		return nil, fmt.Errorf("%w: provider, external, idempotency, hash, player, wallet, round and game are required", ErrInvalidInput)
@@ -146,7 +146,7 @@ func NewExternalTransaction(in ExternalTransactionInput, now time.Time) (*WagerT
 		id:                             uuid.NewString(),
 		source:                         SourceExternal,
 		providerID:                     in.ProviderID,
-		externalID:                     in.ExternalID,
+		externalTransactionID:          in.ExternalTransactionID,
 		idempotencyKey:                 in.IdempotencyKey,
 		payloadHash:                    in.PayloadHash,
 		playerID:                       in.PlayerID,
@@ -217,14 +217,14 @@ func RehydrateTransaction(s TransactionState) (*WagerTransaction, error) {
 	if s.PlayerID == "" || s.WalletID == "" {
 		return nil, fmt.Errorf("%w: player and wallet are required", ErrInvalidInput)
 	}
-	if s.Source == SourceExternal && (s.ProviderID == "" || s.ExternalID == "" || s.IdempotencyKey == "") {
+	if s.Source == SourceExternal && (s.ProviderID == "" || s.ExternalTransactionID == "" || s.IdempotencyKey == "") {
 		return nil, fmt.Errorf("%w: external transactions require provider, external id and idempotency key", ErrInvalidInput)
 	}
 	if s.Source == SourceInternal {
 		if s.Kind != KindOpening {
 			return nil, fmt.Errorf("%w: internal source is reserved to OPENING", ErrInvalidInput)
 		}
-		if s.ProviderID != "" || s.ExternalID != "" || s.IdempotencyKey != "" {
+		if s.ProviderID != "" || s.ExternalTransactionID != "" || s.IdempotencyKey != "" {
 			return nil, fmt.Errorf("%w: internal transactions must not carry external metadata", ErrInvalidInput)
 		}
 	}
@@ -232,7 +232,7 @@ func RehydrateTransaction(s TransactionState) (*WagerTransaction, error) {
 		id:                             s.ID,
 		source:                         s.Source,
 		providerID:                     s.ProviderID,
-		externalID:                     s.ExternalID,
+		externalTransactionID:          s.ExternalTransactionID,
 		idempotencyKey:                 s.IdempotencyKey,
 		payloadHash:                    s.PayloadHash,
 		playerID:                       s.PlayerID,
@@ -261,8 +261,8 @@ func (t *WagerTransaction) Source() Source { return t.source }
 // ProviderID returns the provider, empty for internal transactions.
 func (t *WagerTransaction) ProviderID() string { return t.providerID }
 
-// ExternalID returns the provider-side transaction id, empty for internal.
-func (t *WagerTransaction) ExternalID() string { return t.externalID }
+// ExternalTransactionID returns the provider-side transaction id, empty for internal.
+func (t *WagerTransaction) ExternalTransactionID() string { return t.externalTransactionID }
 
 // IdempotencyKey returns the idempotency key, empty for internal transactions.
 func (t *WagerTransaction) IdempotencyKey() string { return t.idempotencyKey }
