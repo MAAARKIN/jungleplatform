@@ -65,6 +65,7 @@ func newStack(t *testing.T) (http.Handler, *pgxpool.Pool) {
 
 	openWallet := usecase.NewOpenWallet(txm, wallets, transactions, ledger, outbox)
 	processWager := usecase.NewProcessWager(txm, wallets, transactions, ledger, outbox)
+	reconcile := usecase.NewReconcile(wallets, postgres.NewReconstructor(pool))
 
 	authenticator, err := auth.NewAuthenticator(issuer(t), "")
 	if err != nil {
@@ -73,8 +74,9 @@ func newStack(t *testing.T) (http.Handler, *pgxpool.Pool) {
 
 	walletsHandler := httpapi.NewWalletsHandler(openWallet)
 	transactionsHandler := httpapi.NewTransactionsHandler(processWager, transactions)
+	queriesHandler := httpapi.NewQueriesHandler(wallets, ledger, reconcile)
 	health := httpapi.NewHealthHandler(func(context.Context) error { return nil })
-	h := httpapi.NewRouter(health, authenticator.Middleware, walletsHandler, transactionsHandler)
+	h := httpapi.NewRouter(health, authenticator.Middleware, walletsHandler, transactionsHandler, queriesHandler)
 	return h, pool
 }
 

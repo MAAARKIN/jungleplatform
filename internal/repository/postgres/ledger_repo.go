@@ -74,7 +74,7 @@ func (r *LedgerRepo) ListByWallet(ctx context.Context, walletID string, cursor s
 			WHERE wallet_id = $1::uuid
 			ORDER BY created_at, id
 			LIMIT $2`,
-			walletID, limit,
+			walletID, limit+1,
 		)
 	} else {
 		rows, err = q.Query(ctx,
@@ -82,7 +82,7 @@ func (r *LedgerRepo) ListByWallet(ctx context.Context, walletID string, cursor s
 			WHERE wallet_id = $1::uuid AND (created_at, id) > (SELECT created_at, id FROM ledger_entries WHERE id = $2::uuid)
 			ORDER BY created_at, id
 			LIMIT $3`,
-			walletID, lastID, limit,
+			walletID, lastID, limit+1,
 		)
 	}
 	if err != nil {
@@ -101,10 +101,12 @@ func (r *LedgerRepo) ListByWallet(ctx context.Context, walletID string, cursor s
 	if err := rows.Err(); err != nil {
 		return nil, "", fmt.Errorf("postgres: list ledger rows: %w", err)
 	}
-	if len(out) < limit {
-		return out, "", nil
+	// the query fetched limit+1: a full page means a next page exists
+	if len(out) > limit {
+		out = out[:limit]
+		return out, base64.URLEncoding.EncodeToString([]byte(out[len(out)-1].ID())), nil
 	}
-	return out, base64.URLEncoding.EncodeToString([]byte(out[len(out)-1].ID())), nil
+	return out, "", nil
 }
 
 func scanLedgerRow(row pgx.Row) (domain.LedgerEntry, error) {

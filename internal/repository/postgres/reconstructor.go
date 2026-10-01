@@ -2,8 +2,10 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/maaarkin/jungleplatform/internal/domain"
@@ -22,9 +24,18 @@ func NewReconstructor(pool *pgxpool.Pool) *Reconstructor {
 
 // RebuildBalance sums credits minus debits over all ledger entries of the
 // wallet, in (created_at, id) order, and returns the balance with the entry
-// count. Within a transaction (WithinTx) it reads a consistent snapshot.
+// count. A wallet with no ledger entries (zero opening) reconciles to zero
+// in the wallet currency. Within a transaction (WithinTx) it reads a
+// consistent snapshot.
 func (r *Reconstructor) RebuildBalance(ctx context.Context, walletID string) (domain.Money, int, error) {
 	q := QuerierFor(ctx, r.pool)
+	var currency string
+	if err := q.QueryRow(ctx, `SELECT currency FROM wallets WHERE id = $1::uuid`, walletID).Scan(&currency); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.Money{}, 0, domain.ErrNotFound
+		}
+		return domain.Money{}, 0, fmt.Errorf("postgres: rebuild wallet: %w", err)
+	}
 	rows, err := q.Query(ctx,
 		`SELECT direction, money_units, currency FROM ledger_entries WHERE wallet_id = $1::uuid ORDER BY created_at, id`,
 		walletID,
@@ -34,7 +45,6 @@ func (r *Reconstructor) RebuildBalance(ctx context.Context, walletID string) (do
 	}
 	defer rows.Close()
 
-	var currency domain.Currency
 	var units int64
 	count := 0
 	for rows.Next() {
@@ -44,10 +54,7 @@ func (r *Reconstructor) RebuildBalance(ctx context.Context, walletID string) (do
 		if err := rows.Scan(&dir, &entryUnits, &entryCurrency); err != nil {
 			return domain.Money{}, 0, fmt.Errorf("postgres: rebuild row: %w", err)
 		}
-		if currency == "" {
-			currency = domain.Currency(entryCurrency)
-		}
-		if entryCurrency != string(currency) {
+		if entryCurrency != currency {
 			return domain.Money{}, 0, domain.ErrCurrencyMismatch
 		}
 		if domain.Direction(dir) == domain.CreditDirection {
@@ -60,8 +67,5 @@ func (r *Reconstructor) RebuildBalance(ctx context.Context, walletID string) (do
 	if err := rows.Err(); err != nil {
 		return domain.Money{}, 0, fmt.Errorf("postgres: rebuild rows: %w", err)
 	}
-	if currency == "" {
-		return domain.Money{}, 0, domain.ErrNotFound
-	}
-	return domain.NewMoneyUnchecked(units, currency), count, nil
+	return domain.NewMoneyUnchecked(units, domain.Currency(currency)), count, nil
 }

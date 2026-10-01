@@ -29,13 +29,15 @@ func dsn(t *testing.T) string {
 }
 
 type stack struct {
-	pool    *pgxpool.Pool
-	wallets domain.WalletRepo
-	txs     domain.TransactionRepo
-	ledger  domain.LedgerRepo
-	outbox  domain.OutboxRepo
-	inbox   domain.InboxRepo
-	p       *usecase.ProcessWager
+	pool          *pgxpool.Pool
+	wallets       domain.WalletRepo
+	txs           domain.TransactionRepo
+	ledger        domain.LedgerRepo
+	outbox        domain.OutboxRepo
+	inbox         domain.InboxRepo
+	reconstructor domain.Reconstructor
+	p             *usecase.ProcessWager
+	open          *usecase.OpenWallet
 }
 
 func newStack(t *testing.T) *stack {
@@ -59,13 +61,15 @@ func newStack(t *testing.T) *stack {
 	outbox := postgres.NewOutboxRepo(pool)
 	txm := postgres.NewTxManager(pool)
 	return &stack{
-		pool:    pool,
-		wallets: wallets,
-		txs:     txs,
-		ledger:  ledger,
-		outbox:  outbox,
-		inbox:   inbox,
-		p:       usecase.NewProcessWager(txm, wallets, txs, ledger, outbox),
+		pool:          pool,
+		wallets:       wallets,
+		txs:           txs,
+		ledger:        ledger,
+		outbox:        outbox,
+		inbox:         inbox,
+		reconstructor: postgres.NewReconstructor(pool),
+		p:             usecase.NewProcessWager(txm, wallets, txs, ledger, outbox),
+		open:          usecase.NewOpenWallet(txm, wallets, txs, ledger, outbox),
 	}
 }
 

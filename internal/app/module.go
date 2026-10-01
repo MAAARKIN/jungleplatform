@@ -35,14 +35,17 @@ func New(cfg config.Config) *fx.App {
 				fx.Annotate(postgres.NewLedgerRepo, fx.As(new(domain.LedgerRepo))),
 				fx.Annotate(postgres.NewInboxRepo, fx.As(new(domain.InboxRepo))),
 				fx.Annotate(postgres.NewOutboxRepo, fx.As(new(domain.OutboxRepo))),
+				fx.Annotate(postgres.NewReconstructor, fx.As(new(domain.Reconstructor))),
 				usecase.NewOpenWallet,
 				usecase.NewProcessWager,
+				usecase.NewReconcile,
 				newAuthenticator,
 
 				newReadiness,
 				httpapi.NewHealthHandler,
 				httpapi.NewWalletsHandler,
 				httpapi.NewTransactionsHandler,
+				httpapi.NewQueriesHandler,
 				newRouter,
 				func(r *chi.Mux) http.Handler { return r },
 				httpserver.New,
@@ -77,8 +80,9 @@ func newRouter(
 	a *auth.Authenticator,
 	wallets *httpapi.WalletsHandler,
 	transactions *httpapi.TransactionsHandler,
+	queries *httpapi.QueriesHandler,
 ) *chi.Mux {
-	return httpapi.NewRouter(health, a.Middleware, wallets, transactions)
+	return httpapi.NewRouter(health, a.Middleware, wallets, transactions, queries)
 }
 
 // serveHook owns the context used to stop the server during shutdown.
