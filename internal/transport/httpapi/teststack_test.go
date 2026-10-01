@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"os"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -64,7 +63,8 @@ func newStack(t *testing.T) (http.Handler, *pgxpool.Pool) {
 	outbox := postgres.NewOutboxRepo(pool)
 	txm := postgres.NewTxManager(pool)
 
-	openWallet := &usecase.OpenWallet{Tx: txm, Wallets: wallets, Transactions: transactions, Ledger: ledger, Outbox: outbox}
+	openWallet := usecase.NewOpenWallet(txm, wallets, transactions, ledger, outbox)
+	processWager := usecase.NewProcessWager(txm, wallets, transactions, ledger, outbox)
 
 	authenticator, err := auth.NewAuthenticator(issuer(t), "")
 	if err != nil {
@@ -72,8 +72,9 @@ func newStack(t *testing.T) (http.Handler, *pgxpool.Pool) {
 	}
 
 	walletsHandler := httpapi.NewWalletsHandler(openWallet)
+	transactionsHandler := httpapi.NewTransactionsHandler(processWager, transactions)
 	health := httpapi.NewHealthHandler(func(context.Context) error { return nil })
-	h := httpapi.NewRouter(health, authenticator.Middleware, walletsHandler)
+	h := httpapi.NewRouter(health, authenticator.Middleware, walletsHandler, transactionsHandler)
 	return h, pool
 }
 
@@ -99,10 +100,21 @@ func tokenFor(t *testing.T, clientID, secret string) string {
 }
 
 func postJSON(t *testing.T, h http.Handler, path string, token string, body any) *httptest.ResponseRecorder {
+	return requestJSON(t, h, http.MethodPost, path, token, nil, body)
+}
+
+// requestJSON performs an arbitrary method request with optional extra headers.
+func requestJSON(t *testing.T, h http.Handler, method, path, token string, headers map[string]string, body any) *httptest.ResponseRecorder {
 	t.Helper()
-	payload, _ := json.Marshal(body)
-	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(payload))
+	var payload []byte
+	if body != nil {
+		payload, _ = json.Marshal(body)
+	}
+	req := httptest.NewRequest(method, path, bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
@@ -110,6 +122,3 @@ func postJSON(t *testing.T, h http.Handler, path string, token string, body any)
 	h.ServeHTTP(rec, req)
 	return rec
 }
-
-var _ = time.Now
-var _ = pgxpool.Pool{}
