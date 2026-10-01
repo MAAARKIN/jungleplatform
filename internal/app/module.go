@@ -56,6 +56,40 @@ func New(cfg config.Config) *fx.App {
 	)
 }
 
+// storageProviders are shared by the API and the worker: connections,
+// repositories, use cases.
+func storageProviders() []any {
+	return []any{
+		logger.New,
+		newPool,
+		fx.Annotate(postgres.NewTxManager, fx.As(new(domain.TxManager))),
+		fx.Annotate(postgres.NewWalletRepo, fx.As(new(domain.WalletRepo))),
+		fx.Annotate(postgres.NewTransactionRepo, fx.As(new(domain.TransactionRepo))),
+		fx.Annotate(postgres.NewLedgerRepo, fx.As(new(domain.LedgerRepo))),
+		fx.Annotate(postgres.NewInboxRepo, fx.As(new(domain.InboxRepo))),
+		fx.Annotate(postgres.NewOutboxRepo, fx.As(new(domain.OutboxRepo))),
+		fx.Annotate(postgres.NewReconstructor, fx.As(new(domain.Reconstructor))),
+		usecase.NewOpenWallet,
+		usecase.NewProcessWager,
+		usecase.NewReconcile,
+	}
+}
+
+// apiProviders serve the HTTP transport only.
+func apiProviders() []any {
+	return []any{
+		newAuthenticator,
+		httpapi.NewHealthHandler,
+		httpapi.NewWalletsHandler,
+		httpapi.NewTransactionsHandler,
+		httpapi.NewQueriesHandler,
+		newRouter,
+		func(r *chi.Mux) http.Handler { return r },
+		httpserver.New,
+		newServeHook,
+	}
+}
+
 // newPool opens the connection pool from configuration.
 func newPool(cfg config.Config) (*pgxpool.Pool, error) {
 	return postgres.NewPool(context.Background(), cfg.PostgresDSN)

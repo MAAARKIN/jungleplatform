@@ -20,3 +20,12 @@ awslocal sqs create-queue \
   --attributes '{"FifoQueue": "true", "ContentBasedDeduplication": "true"}'
 
 echo "queues provisioned"
+awslocal sqs create-queue \
+  --queue-name wager-transactions-test.fifo \
+  --attributes '{
+    "FifoQueue": "true",
+    "VisibilityTimeout": "2",
+    "RedrivePolicy": "{\"deadLetterTargetArn\":\"arn:aws:sqs:us-east-1:000000000000:wager-transactions-dlq.fifo\",\"maxReceiveCount\":\"2\"}"
+  }'
+
+echo "test queue provisioned"
