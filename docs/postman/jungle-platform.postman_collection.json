@@ -42,7 +42,7 @@
     "type": "oauth2",
     "oauth2": [
       {
-        "key": "grantType",
+        "key": "grant_type",
         "value": "client_credentials"
       },
       {
@@ -184,7 +184,7 @@
         "type": "oauth2",
         "oauth2": [
           {
-            "key": "grantType",
+            "key": "grant_type",
             "value": "client_credentials"
           },
           {
@@ -316,7 +316,7 @@
         "type": "oauth2",
         "oauth2": [
           {
-            "key": "grantType",
+            "key": "grant_type",
             "value": "client_credentials"
           },
           {

@@ -6,8 +6,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -62,7 +60,6 @@ func newSQSClient(cfg config.Config) (*sqs.Client, error) {
 // workerProviders serve the background workers only.
 func workerProviders() []any {
 	return []any{
-		metrics.New(prometheus.DefaultRegisterer),
 		newSQSClient,
 		newConsumer,
 		newOutboxPublisher,
