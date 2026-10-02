@@ -9,7 +9,17 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/maaarkin/jungleplatform/internal/domain"
+	"github.com/maaarkin/jungleplatform/internal/platform/metrics"
 )
+
+// ErrReferenceNotYetAvailable signals the worker that the referenced
+// operation has not arrived (or is still in flight) and the attempt was
+// durably scheduled for retry.
+var ErrReferenceNotYetAvailable = errors.New("usecase: reference not yet available")
+
+// errRejectionHandled signals that a business rejection was durably persisted;
+// the movement flow must stop and the persisted state becomes the output.
+var errRejectionHandled = errors.New("usecase: rejection handled")
 
 // Stable rejection/failure codes.
 const (
@@ -20,6 +30,7 @@ const (
 	FailureReferencePending       = "REFERENCE_PENDING"
 	FailureReferenceUnsuccessful  = "REFERENCE_UNSUCCESSFUL"
 	FailureReferenceMismatch      = "REFERENCE_MISMATCH"
+	FailureAlreadyReversed        = "ALREADY_REVERSED"
 )
 
 // ProcessWager processes one externally originated wagering operation with
@@ -31,17 +42,20 @@ type ProcessWager struct {
 	Transactions domain.TransactionRepo
 	Ledger       domain.LedgerRepo
 	Outbox       domain.OutboxRepo
+	Metrics      *metrics.Registry
 }
 
-// NewProcessWager builds the use case with its repositories.
+// NewProcessWager builds the use case with its repositories; metrics may be
+// nil in tests.
 func NewProcessWager(
 	tx domain.TxManager,
 	wallets domain.WalletRepo,
 	transactions domain.TransactionRepo,
 	ledger domain.LedgerRepo,
 	outbox domain.OutboxRepo,
+	m *metrics.Registry,
 ) *ProcessWager {
-	return &ProcessWager{Tx: tx, Wallets: wallets, Transactions: transactions, Ledger: ledger, Outbox: outbox}
+	return &ProcessWager{Tx: tx, Wallets: wallets, Transactions: transactions, Ledger: ledger, Outbox: outbox, Metrics: m}
 }
 
 // ProcessWagerInput carries the validated business payload.
@@ -72,6 +86,7 @@ type ProcessWagerOutput struct {
 // Execute runs the operation inside one SQL transaction:
 // idempotency checks, wallet lock, movement, ledger, outbox events.
 func (u *ProcessWager) Execute(ctx context.Context, in ProcessWagerInput) (ProcessWagerOutput, error) {
+	started := time.Now()
 	hash, err := CanonicalHash(in.payload())
 	if err != nil {
 		return ProcessWagerOutput{}, err
@@ -136,15 +151,48 @@ func (u *ProcessWager) Execute(ctx context.Context, in ProcessWagerInput) (Proce
 		default:
 			err = fmt.Errorf("%w: unknown kind %q", domain.ErrInvalidInput, in.Kind)
 		}
-		if err != nil {
+		if err != nil && !errors.Is(err, errRejectionHandled) {
 			return err
 		}
 		return u.fillOutput(ctx, tx, w, false, &out)
 	})
 	if err != nil {
+		// a concurrent writer committed the same idempotency key after our
+		// initial check; WithinTx rolled back our transaction, so re-read
+		// outside it and replay — or conflict when the payload differs
+		if errors.Is(err, domain.ErrIdempotencyConflict) {
+			if u.Metrics != nil {
+				u.Metrics.ConflictsTotal.Inc()
+			}
+			err = u.resolveRaceByKey(ctx, in, hash, &out)
+			if err != nil {
+				return ProcessWagerOutput{}, err
+			}
+			if u.Metrics != nil {
+				u.Metrics.ObserveTransaction(string(out.Status), time.Since(started))
+			}
+			return out, nil
+		}
 		return ProcessWagerOutput{}, err
 	}
+	if u.Metrics != nil {
+		u.Metrics.ObserveTransaction(string(out.Status), time.Since(started))
+	}
 	return out, nil
+}
+
+// resolveRaceByKey resolves the insert race on the idempotency key: the
+// winner committed, so this call replays its result (same payload) or
+// conflicts (different payload).
+func (u *ProcessWager) resolveRaceByKey(ctx context.Context, in ProcessWagerInput, hash string, out *ProcessWagerOutput) error {
+	existing, err := u.Transactions.GetByIdempotencyKey(ctx, in.IdempotencyKey)
+	if err != nil {
+		return domain.ErrIdempotencyConflict
+	}
+	if existing.PayloadHash() != hash {
+		return domain.ErrIdempotencyConflict
+	}
+	return u.fillReplay(ctx, existing, out)
 }
 
 func (u *ProcessWager) fillOutput(ctx context.Context, tx *domain.WagerTransaction, w *domain.Wallet, replay bool, out *ProcessWagerOutput) error {
@@ -271,7 +319,14 @@ func (u *ProcessWager) applyReversal(ctx context.Context, tx *domain.WagerTransa
 	}
 
 	if code := referenceIssue(ref, w); code != "" {
-		return u.rejectAndStore(ctx, tx, w, code)
+		if code == FailureReferenceUnsuccessful {
+			return u.rejectAndStore(ctx, tx, w, code)
+		}
+		// reference still in flight: durable wait, resumed by the worker
+		return u.waitForReference(ctx, tx, in.CorrelationID)
+	}
+	if err := u.assertNotAlreadyReversed(ctx, tx, w); err != nil {
+		return err
 	}
 
 	entry, entryErr := reversalEntry(tx, ref, w)
@@ -296,6 +351,113 @@ func (u *ProcessWager) applyReversal(ctx context.Context, tx *domain.WagerTransa
 	return u.emitProcessedAndBalanceEvents(ctx, tx, w, entry)
 }
 
+// waitForReference stores the operation as PENDING_REFERENCE and emits the
+// pending event. It is used both by the synchronous path (reference not yet
+// arrived or still in flight) and shared with the worker.
+func (u *ProcessWager) waitForReference(ctx context.Context, tx *domain.WagerTransaction, correlationID string) error {
+	if tx.Status() == domain.StatusPending {
+		if err := tx.MarkPendingReference(); err != nil {
+			return err
+		}
+	}
+	if err := u.Transactions.Update(ctx, tx); err != nil {
+		return err
+	}
+	return u.Outbox.Enqueue(ctx, domain.NewWagerTransactionPendingReference(
+		uuid.NewString(), correlationID, tx.ID(), tx.ProviderID(), tx.ExternalTransactionID(),
+		tx.Kind(), tx.ReferenceExternalTransactionID(), time.Now().UTC(),
+	))
+}
+
+// assertNotAlreadyReversed blocks a second successful reversal of the same
+// reference: any processed or in-flight reversal (same direction by
+// construction) prevents another one.
+func (u *ProcessWager) assertNotAlreadyReversed(ctx context.Context, tx *domain.WagerTransaction, w *domain.Wallet) error {
+	reversals, err := u.Transactions.ListByReference(ctx, tx.ProviderID(), tx.ReferenceExternalTransactionID())
+	if err != nil {
+		return err
+	}
+	for _, r := range reversals {
+		if r.ID() == tx.ID() {
+			continue
+		}
+		if r.Status() == domain.StatusProcessed || r.Status() == domain.StatusPendingReference {
+			return u.rejectAndStore(ctx, tx, w, FailureAlreadyReversed)
+		}
+	}
+	return nil
+}
+
+// Resume attempts to resolve and apply one PENDING_REFERENCE transaction.
+// ErrReferenceNotYetAvailable means the attempt was durably scheduled for
+// retry. Terminal outcomes (processed or rejected) are persisted here.
+func (u *ProcessWager) Resume(ctx context.Context, tx *domain.WagerTransaction) error {
+	err := u.Tx.WithinTx(ctx, func(ctx context.Context) error {
+		w, err := u.Wallets.GetForUpdate(ctx, tx.WalletID())
+		if err != nil {
+			return err
+		}
+		ref, err := u.Transactions.GetByProviderExternal(ctx, tx.ProviderID(), tx.ReferenceExternalTransactionID())
+		if err != nil {
+			if !errors.Is(err, domain.ErrNotFound) {
+				return err
+			}
+			return ErrReferenceNotYetAvailable
+		}
+		if code := referenceIssue(ref, w); code != "" {
+			if code == FailureReferenceUnsuccessful {
+				return u.rejectAndUpdate(ctx, tx, w, code)
+			}
+			return ErrReferenceNotYetAvailable
+		}
+		if err := u.assertNotAlreadyReversed(ctx, tx, w); err != nil {
+			return err
+		}
+
+		entry, entryErr := reversalEntry(tx, ref, w)
+		if entryErr != nil {
+			if errors.Is(entryErr, domain.ErrInsufficientFunds) {
+				return u.rejectAndUpdate(ctx, tx, w, FailureReversalExceedsBalance)
+			}
+			return u.rejectAndUpdate(ctx, tx, w, FailureReferenceMismatch)
+		}
+		if err := tx.MarkProcessed(entry.BalanceAfter()); err != nil {
+			return err
+		}
+		if err := u.Transactions.Update(ctx, tx); err != nil {
+			return err
+		}
+		if err := u.Wallets.Update(ctx, w); err != nil {
+			return err
+		}
+		if err := u.Ledger.Insert(ctx, entry); err != nil {
+			return err
+		}
+		return u.emitProcessedAndBalanceEvents(ctx, tx, w, entry)
+	})
+	if errors.Is(err, errRejectionHandled) {
+		return nil
+	}
+	return err
+}
+
+// rejectAndUpdate persists a rejection on an already-stored transaction.
+func (u *ProcessWager) rejectAndUpdate(ctx context.Context, tx *domain.WagerTransaction, w *domain.Wallet, failureCode string) error {
+	if err := tx.MarkRejected(failureCode); err != nil {
+		return err
+	}
+	if err := u.Transactions.Update(ctx, tx); err != nil {
+		return err
+	}
+	if err := u.Outbox.Enqueue(ctx, domain.NewWagerTransactionRejected(
+		uuid.NewString(), tx.ID(), tx.ID(), tx.ProviderID(), tx.ExternalTransactionID(),
+		tx.Kind(), failureCode, time.Now().UTC(),
+	)); err != nil {
+		return err
+	}
+	return errRejectionHandled
+}
+
 // referenceIssue returns the rejection code for an unusable reference, or ""
 // when the reference can be reversed.
 func referenceIssue(ref *domain.WagerTransaction, w *domain.Wallet) string {
@@ -303,6 +465,7 @@ func referenceIssue(ref *domain.WagerTransaction, w *domain.Wallet) string {
 	case domain.StatusProcessed:
 		// usable
 	case domain.StatusPending, domain.StatusPendingReference:
+		// still in flight: the caller waits durably
 		return FailureReferencePending
 	default:
 		return FailureReferenceUnsuccessful
@@ -362,10 +525,13 @@ func (u *ProcessWager) rejectAndStore(ctx context.Context, tx *domain.WagerTrans
 	if err := u.Transactions.Insert(ctx, tx); err != nil {
 		return err
 	}
-	return u.Outbox.Enqueue(ctx, domain.NewWagerTransactionRejected(
+	if err := u.Outbox.Enqueue(ctx, domain.NewWagerTransactionRejected(
 		uuid.NewString(), tx.ID(), tx.ID(), tx.ProviderID(), tx.ExternalTransactionID(),
 		tx.Kind(), failureCode, time.Now().UTC(),
-	))
+	)); err != nil {
+		return err
+	}
+	return errRejectionHandled
 }
 
 // emitProcessedAndBalanceEvents emits the completion event plus the balance
@@ -382,5 +548,14 @@ func (u *ProcessWager) emitProcessedAndBalanceEvents(ctx context.Context, tx *do
 		uuid.NewString(), correlationID, w.ID(), tx.ID(),
 		entry.Direction(), entry.Money(), entry.BalanceBefore(), entry.BalanceAfter(),
 		w.Version(), time.Now().UTC(),
+	))
+}
+
+// EnqueueRejection emits the rejection event for an already-persisted
+// rejection (used by the reference worker on TTL expiry).
+func (u *ProcessWager) EnqueueRejection(ctx context.Context, tx *domain.WagerTransaction) error {
+	return u.Outbox.Enqueue(ctx, domain.NewWagerTransactionRejected(
+		uuid.NewString(), tx.ID(), tx.ID(), tx.ProviderID(), tx.ExternalTransactionID(),
+		tx.Kind(), tx.FailureCode(), time.Now().UTC(),
 	))
 }

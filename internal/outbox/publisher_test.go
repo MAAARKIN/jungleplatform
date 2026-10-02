@@ -196,7 +196,7 @@ func TestPublisherPublishesCommittedEvents(t *testing.T) {
 		want[e.EventID] = true
 	}
 
-	pub := outbox.NewPublisher(h.pool, h.outbox, h.client, h.events, "publisher-1", slog.Default(), 200*time.Millisecond)
+	pub := outbox.NewPublisher(h.pool, h.outbox, h.client, h.events, "publisher-1", slog.Default(), 200*time.Millisecond, nil)
 	runUntil(t, pub, func() bool {
 		var pending int
 		_ = h.pool.QueryRow(context.Background(), `SELECT count(*) FROM outbox WHERE published_at IS NULL`).Scan(&pending)
@@ -226,8 +226,8 @@ func TestPublisherTwoInstancesDispute(t *testing.T) {
 	h := newHarness(t)
 	events := enqueue(t, h, 20)
 
-	p1 := outbox.NewPublisher(h.pool, h.outbox, h.client, h.events, "publisher-1", slog.Default(), 100*time.Millisecond)
-	p2 := outbox.NewPublisher(h.pool, h.outbox, h.client, h.events, "publisher-2", slog.Default(), 100*time.Millisecond)
+	p1 := outbox.NewPublisher(h.pool, h.outbox, h.client, h.events, "publisher-1", slog.Default(), 100*time.Millisecond, nil)
+	p2 := outbox.NewPublisher(h.pool, h.outbox, h.client, h.events, "publisher-2", slog.Default(), 100*time.Millisecond, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 2)
@@ -268,7 +268,7 @@ func TestPublisherReschedulesOnFailure(t *testing.T) {
 	events := enqueue(t, h, 1)
 
 	// bad queue URL forces a publish failure
-	pub := outbox.NewPublisher(h.pool, h.outbox, h.client, "http://localhost:4566/000000000000/no-such-queue.fifo", "publisher-1", slog.Default(), 100*time.Millisecond)
+	pub := outbox.NewPublisher(h.pool, h.outbox, h.client, "http://localhost:4566/000000000000/no-such-queue.fifo", "publisher-1", slog.Default(), 100*time.Millisecond, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- pub.Run(ctx) }()
@@ -311,7 +311,7 @@ func TestPublisherReclaimsAbandonedClaim(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	pub := outbox.NewPublisher(h.pool, h.outbox, h.client, h.events, "publisher-2", slog.Default(), 100*time.Millisecond)
+	pub := outbox.NewPublisher(h.pool, h.outbox, h.client, h.events, "publisher-2", slog.Default(), 100*time.Millisecond, nil)
 	runUntil(t, pub, func() bool {
 		var pending int
 		_ = h.pool.QueryRow(context.Background(), `SELECT count(*) FROM outbox WHERE published_at IS NULL`).Scan(&pending)

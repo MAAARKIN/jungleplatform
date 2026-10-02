@@ -35,7 +35,12 @@ type TransactionRepo interface {
 	GetByIdempotencyKey(ctx context.Context, key string) (*WagerTransaction, error)
 	GetByProviderExternal(ctx context.Context, providerID, externalTransactionID string) (*WagerTransaction, error)
 	Update(ctx context.Context, t *WagerTransaction) error
+	// ListPendingReference returns due PENDING_REFERENCE transactions: those
+	// never retried or whose next_reference_attempt_at has passed.
 	ListPendingReference(ctx context.Context, limit int) ([]*WagerTransaction, error)
+	// ListByReference returns every transaction referencing the given external
+	// id, used to block duplicate reversals of the same reference.
+	ListByReference(ctx context.Context, providerID, referenceExternalTransactionID string) ([]*WagerTransaction, error)
 }
 
 // LedgerRepo appends and reads ledger entries. There is no Update or Delete:

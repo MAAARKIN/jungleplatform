@@ -109,7 +109,7 @@ func newHarness(t *testing.T) *harness {
 		txs:     txs,
 		ledger:  ledger,
 		outbox:  outbox,
-		process: usecase.NewProcessWager(txm, wallets, txs, ledger, outbox),
+		process: usecase.NewProcessWager(txm, wallets, txs, ledger, outbox, nil),
 		opener:  usecase.NewOpenWallet(txm, wallets, txs, ledger, outbox),
 	}
 }
@@ -138,7 +138,7 @@ func drainQueue(t *testing.T, client *sqs.Client, queue string) {
 
 func (h *harness) newConsumer(t *testing.T) *sqsconsumer.Consumer {
 	t.Helper()
-	return sqsconsumer.NewConsumer(h.client, h.queue, consumerName, h.process, h.inbox, postgres.NewTxManager(h.pool), slog.Default(), 1)
+	return sqsconsumer.NewConsumer(h.client, h.queue, consumerName, h.process, h.inbox, postgres.NewTxManager(h.pool), slog.Default(), 1, nil)
 }
 
 func (h *harness) openWallet(t *testing.T, playerID, amount string) *domain.Wallet {
@@ -270,7 +270,7 @@ func TestConsumerProcessesAndDeletesMessage(t *testing.T) {
 	h.runUntil(t, c, func() bool {
 		var count int
 		_ = h.pool.QueryRow(context.Background(), `SELECT count(*) FROM wager_transactions WHERE external_transaction_id = 'ext-1'`).Scan(&count)
-		return count == 1
+		return count == 1 && h.queueCount(t, h.queue) == 0
 	}, "transaction processing")
 
 	if got := h.queueCount(t, h.queue); got != 0 {
@@ -298,11 +298,13 @@ func TestConsumerDeduplicatesRepeatDelivery(t *testing.T) {
 	c := h.newConsumer(t)
 
 	body := envelope(t, "msg-dup-1", w, "ext-dup", "BET", "10.00", "provider-a:ext-dup", "")
-	// three deliveries of the SAME message identity, distinct SQS dedup ids:
-	// exercises the application-level inbox, not the broker deduplication
-	h.sendWithDedup(t, h.queue, body, "d-1")
-	h.sendWithDedup(t, h.queue, body, "d-2")
-	h.sendWithDedup(t, h.queue, body, "d-3")
+	// three deliveries of the SAME message identity; dedup ids are unique per
+	// run (broker FIFO dedup window is 5 minutes) so the broker delivers all
+	// three and the APPLICATION-level inbox does the deduplication
+	run := uuid.NewString()[:8]
+	h.sendWithDedup(t, h.queue, body, run+"-d-1")
+	h.sendWithDedup(t, h.queue, body, run+"-d-2")
+	h.sendWithDedup(t, h.queue, body, run+"-d-3")
 
 	h.runUntil(t, c, func() bool {
 		var inboxRows int
@@ -398,7 +400,7 @@ func TestConsumerCrossChannelIdempotency(t *testing.T) {
 	h.runUntil(t, c, func() bool {
 		var inboxRows int
 		_ = h.pool.QueryRow(context.Background(), `SELECT count(*) FROM inbox WHERE message_id = 'msg-cross' AND completed_at IS NOT NULL`).Scan(&inboxRows)
-		return inboxRows == 1
+		return inboxRows == 1 && h.queueCount(t, h.queue) == 0
 	}, "cross-channel replay")
 
 	var debits int

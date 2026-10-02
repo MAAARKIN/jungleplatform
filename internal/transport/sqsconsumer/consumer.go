@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/maaarkin/jungleplatform/internal/domain"
+	"github.com/maaarkin/jungleplatform/internal/platform/metrics"
 	"github.com/maaarkin/jungleplatform/internal/usecase"
 )
 
@@ -34,6 +35,7 @@ type Consumer struct {
 	tx          domain.TxManager
 	log         *slog.Logger
 	waitSeconds int
+	metrics     *metrics.Registry
 }
 
 // NewConsumer builds the consumer. waitSeconds is the long-poll interval in
@@ -47,6 +49,7 @@ func NewConsumer(
 	tx domain.TxManager,
 	log *slog.Logger,
 	waitSeconds int,
+	metricsReg *metrics.Registry,
 ) *Consumer {
 	if log == nil {
 		log = slog.Default()
@@ -57,6 +60,7 @@ func NewConsumer(
 	return &Consumer{
 		client: client, queueURL: queueURL, name: name,
 		process: process, inbox: inbox, tx: tx, log: log, waitSeconds: waitSeconds,
+		metrics: metricsReg,
 	}
 }
 
@@ -115,6 +119,9 @@ func (c *Consumer) handle(ctx context.Context, msg types.Message) {
 		// invalid payload: transient handling lets the redrive policy route it
 		// to the DLQ after maxReceiveCount
 		c.log.Error("invalid message, leaving for redrive", "messageId", msg.MessageId)
+		if c.metrics != nil {
+			c.metrics.DLQTotal.Inc()
+		}
 		return
 	}
 
@@ -128,6 +135,9 @@ func (c *Consumer) handle(ctx context.Context, msg types.Message) {
 		if !first {
 			// duplicate delivery: the hash matched, the message is already
 			// durably handled — safe to remove
+			if c.metrics != nil {
+				c.metrics.DuplicatesTotal.Inc()
+			}
 			return nil
 		}
 		out, err := c.process.Execute(ctx, envelope.Data.toInput())
@@ -151,6 +161,9 @@ func (c *Consumer) handle(ctx context.Context, msg types.Message) {
 		}
 		c.log.Error("processing failed, leaving for redelivery",
 			"messageId", envelope.MessageID, "error", err)
+		if c.metrics != nil {
+			c.metrics.RetriesTotal.Inc()
+		}
 		return
 	}
 

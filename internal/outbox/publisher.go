@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/maaarkin/jungleplatform/internal/domain"
+	"github.com/maaarkin/jungleplatform/internal/platform/metrics"
 )
 
 // Publisher drains the outbox: claim → publish → mark published; on failure
@@ -28,6 +29,7 @@ type Publisher struct {
 	name     string
 	log      *slog.Logger
 	interval time.Duration
+	metrics  *metrics.Registry
 }
 
 // NewPublisher builds the publisher. interval is the polling tick (1s in
@@ -40,6 +42,7 @@ func NewPublisher(
 	name string,
 	log *slog.Logger,
 	interval time.Duration,
+	metricsReg *metrics.Registry,
 ) *Publisher {
 	if log == nil {
 		log = slog.Default()
@@ -49,7 +52,7 @@ func NewPublisher(
 	}
 	return &Publisher{
 		pool: pool, repo: repo, client: client, queueURL: queueURL,
-		name: name, log: log, interval: interval,
+		name: name, log: log, interval: interval, metrics: metricsReg,
 	}
 }
 
@@ -79,6 +82,9 @@ func (p *Publisher) publishBatch(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("outbox: claim: %w", err)
 	}
+	if p.metrics != nil {
+		p.metrics.OutboxPending.Set(float64(len(events)))
+	}
 	for _, msg := range events {
 		if ctx.Err() != nil {
 			return nil
@@ -99,6 +105,9 @@ func (p *Publisher) publish(ctx context.Context, msg domain.OutboxMessage) {
 		MessageDeduplicationId: aws.String(msg.EventID), // republishing preserves identity
 	})
 	if err != nil {
+		if p.metrics != nil {
+			p.metrics.RetriesTotal.Inc()
+		}
 		next, attempts := p.backoff(ctx, msg.EventID)
 		p.log.Error("publish failed, rescheduled",
 			"publisher", p.name, "eventId", msg.EventID, "attempts", attempts,

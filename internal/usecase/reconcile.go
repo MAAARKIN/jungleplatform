@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/maaarkin/jungleplatform/internal/domain"
+	"github.com/maaarkin/jungleplatform/internal/platform/metrics"
 )
 
 // Reconcile compares the stored wallet balance against the balance rebuilt
@@ -11,11 +12,12 @@ import (
 type Reconcile struct {
 	Wallets       domain.WalletRepo
 	Reconstructor domain.Reconstructor
+	Metrics       *metrics.Registry
 }
 
-// NewReconcile builds the use case.
-func NewReconcile(wallets domain.WalletRepo, reconstructor domain.Reconstructor) *Reconcile {
-	return &Reconcile{Wallets: wallets, Reconstructor: reconstructor}
+// NewReconcile builds the use case; metrics may be nil in tests.
+func NewReconcile(wallets domain.WalletRepo, reconstructor domain.Reconstructor, m *metrics.Registry) *Reconcile {
+	return &Reconcile{Wallets: wallets, Reconstructor: reconstructor, Metrics: m}
 }
 
 // ReconcileInput identifies the wallet to check.
@@ -47,6 +49,9 @@ func (u *Reconcile) Execute(ctx context.Context, in ReconcileInput) (ReconcileOu
 	difference, err := w.Balance().Sub(calculated)
 	if err != nil {
 		return ReconcileOutput{}, err
+	}
+	if u.Metrics != nil && difference.Units() != 0 {
+		u.Metrics.ReconciliationDiver.Inc()
 	}
 	return ReconcileOutput{
 		WalletID:          in.WalletID,

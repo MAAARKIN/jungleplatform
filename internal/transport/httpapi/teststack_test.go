@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/maaarkin/jungleplatform/db/migrations"
 	"github.com/maaarkin/jungleplatform/internal/platform/auth"
+	"github.com/maaarkin/jungleplatform/internal/platform/middleware"
 	"github.com/maaarkin/jungleplatform/internal/platform/migrate"
 	"github.com/maaarkin/jungleplatform/internal/repository/postgres"
 	"github.com/maaarkin/jungleplatform/internal/transport/httpapi"
@@ -64,8 +66,8 @@ func newStack(t *testing.T) (http.Handler, *pgxpool.Pool) {
 	txm := postgres.NewTxManager(pool)
 
 	openWallet := usecase.NewOpenWallet(txm, wallets, transactions, ledger, outbox)
-	processWager := usecase.NewProcessWager(txm, wallets, transactions, ledger, outbox)
-	reconcile := usecase.NewReconcile(wallets, postgres.NewReconstructor(pool))
+	processWager := usecase.NewProcessWager(txm, wallets, transactions, ledger, outbox, nil)
+	reconcile := usecase.NewReconcile(wallets, postgres.NewReconstructor(pool), nil)
 
 	authenticator, err := auth.NewAuthenticator(issuer(t), "")
 	if err != nil {
@@ -76,7 +78,7 @@ func newStack(t *testing.T) (http.Handler, *pgxpool.Pool) {
 	transactionsHandler := httpapi.NewTransactionsHandler(processWager, transactions)
 	queriesHandler := httpapi.NewQueriesHandler(wallets, ledger, reconcile)
 	health := httpapi.NewHealthHandler(func(context.Context) error { return nil })
-	h := httpapi.NewRouter(health, authenticator.Middleware, walletsHandler, transactionsHandler, queriesHandler)
+	h := httpapi.NewRouter(health, middleware.Correlation, middleware.Logger(slog.Default()), authenticator.Middleware, walletsHandler, transactionsHandler, queriesHandler)
 	return h, pool
 }
 

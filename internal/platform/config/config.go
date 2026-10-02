@@ -21,6 +21,7 @@ type Config struct {
 	KeycloakClientSecret string
 	WorkerMode           string
 	ShutdownGrace        time.Duration
+	PendingRefTTL        time.Duration
 }
 
 func env(key, def string) string {
@@ -63,6 +64,13 @@ func Load() (Config, error) {
 		}
 	}
 
+	if raw := os.Getenv("PENDING_REF_TTL"); raw != "" {
+		ttl, err := time.ParseDuration(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("config: invalid PENDING_REF_TTL %q: %w", raw, err)
+		}
+		cfg.PendingRefTTL = ttl
+	}
 	if raw := os.Getenv("SHUTDOWN_GRACE"); raw != "" {
 		g, err := time.ParseDuration(raw)
 		if err != nil {

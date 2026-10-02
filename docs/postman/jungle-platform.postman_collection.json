@@ -1,0 +1,591 @@
+{
+  "info": {
+    "name": "Jungle Platform \u2014 Wager Processing",
+    "description": "Collection for manual testing of the Jungle Platform API.\n\n**How to use:**\n1. Start the stack: `docker compose up --build`.\n2. In each folder, open the **Authorization** tab and click **Get New Access Token** (OAuth2 `client_credentials` is preconfigured per identity: `internal` for wallets, `provider-a` for wagering).\n3. `Open wallet` automatically stores `walletId` into the collection variables; `BET` stores `transactionId` and `externalTransactionId`.\n4. The `Idempotency-Key` uses `{{$guid}}` \u2014 replace it with a fixed value to test replays (same key) and conflicts (same key, different payload).\n\nIsolation: the provider folder uses `provider-a`; switch the client to `provider-b` and try fetching provider-a's transactions (expected: 404).\n\nThe Public folder (health/metrics) needs no authentication \u2014 just send.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "playerId",
+      "value": "0199f28f-5dc0-7d58-bdb2-814ad6a0f4a1"
+    },
+    {
+      "key": "walletId",
+      "value": ""
+    },
+    {
+      "key": "transactionId",
+      "value": ""
+    },
+    {
+      "key": "externalTransactionId",
+      "value": ""
+    },
+    {
+      "key": "roundId",
+      "value": "round-987"
+    },
+    {
+      "key": "gameId",
+      "value": "fortune-chimp"
+    },
+    {
+      "key": "providerId",
+      "value": "provider-a"
+    }
+  ],
+  "auth": {
+    "type": "oauth2",
+    "oauth2": [
+      {
+        "key": "grantType",
+        "value": "client_credentials"
+      },
+      {
+        "key": "accessTokenUrl",
+        "value": "http://localhost:8180/realms/jungle/protocol/openid-connect/token"
+      },
+      {
+        "key": "clientId",
+        "value": "internal"
+      },
+      {
+        "key": "clientSecret",
+        "value": "internal-secret"
+      },
+      {
+        "key": "tokenType",
+        "value": "Bearer"
+      },
+      {
+        "key": "addTokenTo",
+        "value": "header"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Public",
+      "item": [
+        {
+          "name": "Health - Live",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/health/live",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health",
+                "live"
+              ]
+            },
+            "description": "Liveness probe. No authentication, no body \u2014 just send. Always 200 while the process is up."
+          }
+        },
+        {
+          "name": "Health - Ready",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/health/ready",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health",
+                "ready"
+              ]
+            },
+            "description": "Readiness probe: PostgreSQL + SQS. Returns 503 when a dependency is down. No authentication, no body."
+          }
+        },
+        {
+          "name": "Metrics (Prometheus)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/metrics",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "metrics"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Token (Keycloak) \u2014 manual, for demonstration",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "client_credentials"
+                },
+                {
+                  "key": "client_id",
+                  "value": "internal"
+                },
+                {
+                  "key": "client_secret",
+                  "value": "internal-secret"
+                }
+              ]
+            },
+            "url": {
+              "raw": "http://localhost:8180/realms/jungle/protocol/openid-connect/token",
+              "host": [
+                "localhost"
+              ],
+              "port": "8180",
+              "path": [
+                "realms",
+                "jungle",
+                "protocol",
+                "openid-connect",
+                "token"
+              ]
+            },
+            "description": "Explicit client_credentials grant against Keycloak (for demonstration \u2014 normally Postman's OAuth2 helper does this silently). Swap client_id/client_secret for provider-a/provider-a-secret or provider-b/provider-b-secret. The `access_token` of the response is what goes into the Authorization header of every other request."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Internal Service - Wallets",
+      "auth": {
+        "type": "oauth2",
+        "oauth2": [
+          {
+            "key": "grantType",
+            "value": "client_credentials"
+          },
+          {
+            "key": "accessTokenUrl",
+            "value": "http://localhost:8180/realms/jungle/protocol/openid-connect/token"
+          },
+          {
+            "key": "clientId",
+            "value": "internal"
+          },
+          {
+            "key": "clientSecret",
+            "value": "internal-secret"
+          },
+          {
+            "key": "tokenType",
+            "value": "Bearer"
+          }
+        ]
+      },
+      "item": [
+        {
+          "name": "Open wallet",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"playerId\": \"{{playerId}}\",\n  \"initialBalance\": { \"amount\": \"1000.00\", \"currency\": \"BRL\" }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/wallets",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "wallets"
+              ]
+            },
+            "description": "201 creates the wallet (balance > 0 also creates OPENING + ledger entry + 2 outbox events in the same commit). Sending it again \u2192 409. Zero balance \u2192 no financial records."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const body = pm.response.json();",
+                  "  pm.collectionVariables.set('walletId', body.id);",
+                  "  pm.test('walletId stored', () => pm.expect(body.id).to.be.a('string'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Read wallet",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/wallets/{{walletId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "wallets",
+                "{{walletId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Ledger (paginated)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/wallets/{{walletId}}/ledger?cursor=&limit=50",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "wallets",
+                "{{walletId}}",
+                "ledger"
+              ],
+              "query": [
+                {
+                  "key": "cursor",
+                  "value": ""
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            },
+            "description": "Opaque cursor: pass the `nextCursor` from the previous response to fetch the next page."
+          }
+        },
+        {
+          "name": "Reconciliation",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{baseUrl}}/wallets/{{walletId}}/reconciliation",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "wallets",
+                "{{walletId}}",
+                "reconciliation"
+              ]
+            },
+            "description": "Compares stored balance vs. ledger-rebuilt balance. Never mutates the balance."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Provider - Wagering Operations",
+      "auth": {
+        "type": "oauth2",
+        "oauth2": [
+          {
+            "key": "grantType",
+            "value": "client_credentials"
+          },
+          {
+            "key": "accessTokenUrl",
+            "value": "http://localhost:8180/realms/jungle/protocol/openid-connect/token"
+          },
+          {
+            "key": "clientId",
+            "value": "provider-a"
+          },
+          {
+            "key": "clientSecret",
+            "value": "provider-a-secret"
+          },
+          {
+            "key": "tokenType",
+            "value": "Bearer"
+          }
+        ]
+      },
+      "item": [
+        {
+          "name": "BET",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "provider-a:{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"providerId\": \"{{providerId}}\",\n  \"externalTransactionId\": \"{{$guid}}\",\n  \"playerId\": \"{{playerId}}\",\n  \"walletId\": \"{{walletId}}\",\n  \"roundId\": \"{{roundId}}\",\n  \"gameId\": \"{{gameId}}\",\n  \"kind\": \"BET\",\n  \"money\": { \"amount\": \"25.00\", \"currency\": \"BRL\" }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/wagering/transactions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "wagering",
+                "transactions"
+              ]
+            },
+            "description": "200 processed/replay \u00b7 409 idempotency conflict \u00b7 422 business rejection (failureCode) \u00b7 400 invalid input."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.transactionId) pm.collectionVariables.set('transactionId', body.transactionId);",
+                  "if (pm.request.headers.get('Idempotency-Key')) {",
+                  "  const payload = JSON.parse(pm.request.body.raw);",
+                  "  pm.collectionVariables.set('externalTransactionId', payload.externalTransactionId);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "WIN",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "provider-a:{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"providerId\": \"{{providerId}}\",\n  \"externalTransactionId\": \"{{$guid}}\",\n  \"playerId\": \"{{playerId}}\",\n  \"walletId\": \"{{walletId}}\",\n  \"roundId\": \"{{roundId}}\",\n  \"gameId\": \"{{gameId}}\",\n  \"kind\": \"WIN\",\n  \"money\": { \"amount\": \"50.00\", \"currency\": \"BRL\" }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/wagering/transactions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "wagering",
+                "transactions"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const body = pm.response.json();",
+                  "if (body.transactionId) pm.collectionVariables.set('transactionId', body.transactionId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "LOSS (amount must be 0.00)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "provider-a:{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"providerId\": \"{{providerId}}\",\n  \"externalTransactionId\": \"{{$guid}}\",\n  \"playerId\": \"{{playerId}}\",\n  \"walletId\": \"{{walletId}}\",\n  \"roundId\": \"{{roundId}}\",\n  \"gameId\": \"{{gameId}}\",\n  \"kind\": \"LOSS\",\n  \"money\": { \"amount\": \"0.00\", \"currency\": \"BRL\" }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/wagering/transactions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "wagering",
+                "transactions"
+              ]
+            },
+            "description": "LOSS never touches the ledger nor emits WalletBalanceChanged; it only emits WagerTransactionProcessed."
+          }
+        },
+        {
+          "name": "REFUND (references a BET)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "provider-a:{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"providerId\": \"{{providerId}}\",\n  \"externalTransactionId\": \"{{$guid}}\",\n  \"playerId\": \"{{playerId}}\",\n  \"walletId\": \"{{walletId}}\",\n  \"roundId\": \"{{roundId}}\",\n  \"gameId\": \"{{gameId}}\",\n  \"kind\": \"REFUND\",\n  \"money\": { \"amount\": \"25.00\", \"currency\": \"BRL\" },\n  \"referenceExternalTransactionId\": \"{{externalTransactionId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/wagering/transactions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "wagering",
+                "transactions"
+              ]
+            },
+            "description": "Returns a processed BET in full. Reference not available yet \u2192 202 PENDING_REFERENCE (the reference worker resolves it later). A second REFUND on the same reference \u2192 422 ALREADY_REVERSED."
+          }
+        },
+        {
+          "name": "ROLLBACK (opposite movement of the original)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "provider-a:{{$guid}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"providerId\": \"{{providerId}}\",\n  \"externalTransactionId\": \"{{$guid}}\",\n  \"playerId\": \"{{playerId}}\",\n  \"walletId\": \"{{walletId}}\",\n  \"roundId\": \"{{roundId}}\",\n  \"gameId\": \"{{gameId}}\",\n  \"kind\": \"ROLLBACK\",\n  \"money\": { \"amount\": \"25.00\", \"currency\": \"BRL\" },\n  \"referenceExternalTransactionId\": \"{{externalTransactionId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/wagering/transactions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "wagering",
+                "transactions"
+              ]
+            },
+            "description": "Undoes a processed BET, WIN or REFUND. If it would overdraw the balance \u2192 422 REVERSAL_EXCEEDS_BALANCE."
+          }
+        },
+        {
+          "name": "Get transaction by id",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/wagering/transactions/{{transactionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "wagering",
+                "transactions",
+                "{{transactionId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get transaction by external id",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/providers/{{providerId}}/wagering/transactions/{{externalTransactionId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "providers",
+                "{{providerId}}",
+                "wagering",
+                "transactions",
+                "{{externalTransactionId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Replay test (fixed Idempotency-Key)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "provider-a:replay-fixed"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"providerId\": \"{{providerId}}\",\n  \"externalTransactionId\": \"replay-fixed\",\n  \"playerId\": \"{{playerId}}\",\n  \"walletId\": \"{{walletId}}\",\n  \"roundId\": \"{{roundId}}\",\n  \"gameId\": \"{{gameId}}\",\n  \"kind\": \"BET\",\n  \"money\": { \"amount\": \"1.00\", \"currency\": \"BRL\" }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/wagering/transactions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "wagering",
+                "transactions"
+              ]
+            },
+            "description": "Fixed key. Send twice \u2192 the second response carries `idempotentReplay: true` with the balance observed at the original processing. Change the amount keeping the key \u2192 409."
+          }
+        }
+      ]
+    }
+  ]
+}

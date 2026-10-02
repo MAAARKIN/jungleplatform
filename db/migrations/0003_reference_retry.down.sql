@@ -1,0 +1,2 @@
+ALTER TABLE wager_transactions DROP COLUMN next_reference_attempt_at;
+ALTER TABLE wager_transactions DROP COLUMN reference_attempts;

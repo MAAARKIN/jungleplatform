@@ -32,7 +32,7 @@ func TestReconcileConsistentWallet(t *testing.T) {
 		t.Fatalf("bet: %v", err)
 	}
 
-	rec := usecase.NewReconcile(s.wallets, s.reconstructor)
+	rec := usecase.NewReconcile(s.wallets, s.reconstructor, nil)
 	res, err := rec.Execute(ctx, usecase.ReconcileInput{WalletID: out.WalletID})
 	if err != nil {
 		t.Fatalf("reconcile: %v", err)
@@ -67,7 +67,7 @@ func TestReconcileReportsDivergenceWithoutFixing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rec := usecase.NewReconcile(s.wallets, s.reconstructor)
+	rec := usecase.NewReconcile(s.wallets, s.reconstructor, nil)
 	res, err := rec.Execute(ctx, usecase.ReconcileInput{WalletID: out.WalletID})
 	if err != nil {
 		t.Fatalf("reconcile: %v", err)
@@ -103,7 +103,7 @@ func TestReconcileZeroBalanceWalletWithoutLedger(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rec := usecase.NewReconcile(s.wallets, s.reconstructor)
+	rec := usecase.NewReconcile(s.wallets, s.reconstructor, nil)
 	res, err := rec.Execute(ctx, usecase.ReconcileInput{WalletID: out.WalletID})
 	if err != nil {
 		t.Fatalf("zero-balance wallet must reconcile: %v", err)
@@ -118,7 +118,7 @@ func TestReconcileZeroBalanceWalletWithoutLedger(t *testing.T) {
 
 func TestReconcileUnknownWalletNotFound(t *testing.T) {
 	s := newStack(t)
-	rec := usecase.NewReconcile(s.wallets, s.reconstructor)
+	rec := usecase.NewReconcile(s.wallets, s.reconstructor, nil)
 	if _, err := rec.Execute(context.Background(), usecase.ReconcileInput{WalletID: "00000000-0000-0000-0000-000000000000"}); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("err = %v, want ErrNotFound", err)
 	}

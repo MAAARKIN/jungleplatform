@@ -75,6 +75,8 @@ type TransactionState struct {
 	Status                         Status
 	FailureCode                    string
 	ResultBalance                  Money
+	ReferenceAttempts              int
+	NextReferenceAttempt           *time.Time
 	CreatedAt                      time.Time
 	UpdatedAt                      time.Time
 }
@@ -101,6 +103,8 @@ type WagerTransaction struct {
 	failureCode                    string
 	resultBalance                  Money
 	hasResultBalance               bool
+	referenceAttempts              int
+	nextReferenceAttempt           *time.Time
 	createdAt                      time.Time
 	updatedAt                      time.Time
 }
@@ -247,6 +251,8 @@ func RehydrateTransaction(s TransactionState) (*WagerTransaction, error) {
 		failureCode:                    s.FailureCode,
 		resultBalance:                  s.ResultBalance,
 		hasResultBalance:               s.ResultBalance.currency != "",
+		referenceAttempts:              s.ReferenceAttempts,
+		nextReferenceAttempt:           s.NextReferenceAttempt,
 		createdAt:                      s.CreatedAt.UTC(),
 		updatedAt:                      s.UpdatedAt.UTC(),
 	}, nil
@@ -310,6 +316,22 @@ func (t *WagerTransaction) ResultBalance() Money { return t.resultBalance }
 
 // HasResultBalance reports whether a processing result balance was recorded.
 func (t *WagerTransaction) HasResultBalance() bool { return t.hasResultBalance }
+
+// ReferenceAttempts returns how many times the reference worker tried to
+// resolve this operation's reference.
+func (t *WagerTransaction) ReferenceAttempts() int { return t.referenceAttempts }
+
+// NextReferenceAttempt returns when the worker may retry the reference
+// resolution; nil means due immediately.
+func (t *WagerTransaction) NextReferenceAttempt() *time.Time { return t.nextReferenceAttempt }
+
+// ScheduleReferenceRetry records a failed resolution attempt and the next
+// attempt instant (exponential backoff is a worker policy).
+func (t *WagerTransaction) ScheduleReferenceRetry(next time.Time, now time.Time) {
+	t.referenceAttempts++
+	t.nextReferenceAttempt = &next
+	t.updatedAt = now.UTC()
+}
 
 // CreatedAt returns the creation instant (UTC).
 func (t *WagerTransaction) CreatedAt() time.Time { return t.createdAt }

@@ -9,13 +9,16 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/maaarkin/jungleplatform/internal/domain"
+	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/fx"
 
+	"github.com/maaarkin/jungleplatform/internal/domain"
 	"github.com/maaarkin/jungleplatform/internal/platform/auth"
 	"github.com/maaarkin/jungleplatform/internal/platform/config"
 	"github.com/maaarkin/jungleplatform/internal/platform/httpserver"
 	"github.com/maaarkin/jungleplatform/internal/platform/logger"
+	"github.com/maaarkin/jungleplatform/internal/platform/metrics"
+	"github.com/maaarkin/jungleplatform/internal/platform/middleware"
 	"github.com/maaarkin/jungleplatform/internal/repository/postgres"
 	"github.com/maaarkin/jungleplatform/internal/transport/httpapi"
 	"github.com/maaarkin/jungleplatform/internal/usecase"
@@ -26,42 +29,19 @@ func New(cfg config.Config) *fx.App {
 	return fx.New(
 		fx.Module("api",
 			fx.Supply(cfg),
-			fx.Provide(
-				logger.New,
-				newPool,
-				fx.Annotate(postgres.NewTxManager, fx.As(new(domain.TxManager))),
-				fx.Annotate(postgres.NewWalletRepo, fx.As(new(domain.WalletRepo))),
-				fx.Annotate(postgres.NewTransactionRepo, fx.As(new(domain.TransactionRepo))),
-				fx.Annotate(postgres.NewLedgerRepo, fx.As(new(domain.LedgerRepo))),
-				fx.Annotate(postgres.NewInboxRepo, fx.As(new(domain.InboxRepo))),
-				fx.Annotate(postgres.NewOutboxRepo, fx.As(new(domain.OutboxRepo))),
-				fx.Annotate(postgres.NewReconstructor, fx.As(new(domain.Reconstructor))),
-				usecase.NewOpenWallet,
-				usecase.NewProcessWager,
-				usecase.NewReconcile,
-				newAuthenticator,
-
-				newReadiness,
-				httpapi.NewHealthHandler,
-				httpapi.NewWalletsHandler,
-				httpapi.NewTransactionsHandler,
-				httpapi.NewQueriesHandler,
-				newRouter,
-				func(r *chi.Mux) http.Handler { return r },
-				httpserver.New,
-				newServeHook,
-			),
+			fx.Provide(append(storageProviders(), apiProviders()...)...),
 			fx.Invoke(runServer),
 		),
 	)
 }
 
 // storageProviders are shared by the API and the worker: connections,
-// repositories, use cases.
+// repositories, use cases and the metrics registry.
 func storageProviders() []any {
 	return []any{
 		logger.New,
 		newPool,
+		newMetricsRegistry,
 		fx.Annotate(postgres.NewTxManager, fx.As(new(domain.TxManager))),
 		fx.Annotate(postgres.NewWalletRepo, fx.As(new(domain.WalletRepo))),
 		fx.Annotate(postgres.NewTransactionRepo, fx.As(new(domain.TransactionRepo))),
@@ -71,7 +51,7 @@ func storageProviders() []any {
 		fx.Annotate(postgres.NewReconstructor, fx.As(new(domain.Reconstructor))),
 		usecase.NewOpenWallet,
 		usecase.NewProcessWager,
-		usecase.NewReconcile,
+		newReconcileUseCase,
 	}
 }
 
@@ -79,6 +59,7 @@ func storageProviders() []any {
 func apiProviders() []any {
 	return []any{
 		newAuthenticator,
+		newReadiness,
 		httpapi.NewHealthHandler,
 		httpapi.NewWalletsHandler,
 		httpapi.NewTransactionsHandler,
@@ -88,6 +69,10 @@ func apiProviders() []any {
 		httpserver.New,
 		newServeHook,
 	}
+}
+
+func newMetricsRegistry() *metrics.Registry {
+	return metrics.New(prometheus.DefaultRegisterer)
 }
 
 // newPool opens the connection pool from configuration.
@@ -100,7 +85,7 @@ func newAuthenticator(cfg config.Config) (*auth.Authenticator, error) {
 	return auth.NewAuthenticator(cfg.KeycloakIssuerURL, cfg.KeycloakJWKSURL)
 }
 
-// newReadiness reports readiness: PostgreSQL reachable (SQS joins in Task 16).
+// newReadiness reports readiness: PostgreSQL reachable (SQS joins later).
 func newReadiness(pool *pgxpool.Pool) httpapi.ReadinessFunc {
 	return func(ctx context.Context) error {
 		ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -109,14 +94,24 @@ func newReadiness(pool *pgxpool.Pool) httpapi.ReadinessFunc {
 	}
 }
 
+// newReconcileUseCase wires reconciliation with the shared metrics registry.
+func newReconcileUseCase(
+	wallets domain.WalletRepo,
+	reconstructor domain.Reconstructor,
+	m *metrics.Registry,
+) *usecase.Reconcile {
+	return usecase.NewReconcile(wallets, reconstructor, m)
+}
+
 func newRouter(
 	health *httpapi.HealthHandler,
+	log *slog.Logger,
 	a *auth.Authenticator,
 	wallets *httpapi.WalletsHandler,
 	transactions *httpapi.TransactionsHandler,
 	queries *httpapi.QueriesHandler,
 ) *chi.Mux {
-	return httpapi.NewRouter(health, a.Middleware, wallets, transactions, queries)
+	return httpapi.NewRouter(health, middleware.Correlation, middleware.Logger(log), a.Middleware, wallets, transactions, queries)
 }
 
 // serveHook owns the context used to stop the server during shutdown.

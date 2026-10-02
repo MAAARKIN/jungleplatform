@@ -18,7 +18,8 @@ const txColumns = `id, source,
 	player_id, wallet_id::text, COALESCE(round_id, ''), COALESCE(game_id, ''),
 	kind, money_units, currency,
 	COALESCE(reference_external_transaction_id, ''), resolved_reference_transaction_id,
-	status, COALESCE(failure_code, ''), result_balance_units, created_at, updated_at`
+	status, COALESCE(failure_code, ''), result_balance_units,
+	reference_attempts, next_reference_attempt_at, created_at, updated_at`
 
 // TransactionRepo implements domain.TransactionRepo with explicit SQL.
 type TransactionRepo struct {
@@ -48,12 +49,13 @@ func (r *TransactionRepo) Insert(ctx context.Context, t *domain.WagerTransaction
 			id, source, provider_id, external_transaction_id, idempotency_key, payload_hash,
 			player_id, wallet_id, round_id, game_id, kind, money_units, currency,
 			reference_external_transaction_id, resolved_reference_transaction_id,
-			status, failure_code, result_balance_units, created_at, updated_at
+			status, failure_code, result_balance_units,
+			reference_attempts, next_reference_attempt_at, created_at, updated_at
 		) VALUES (
 			$1, $2, nullIf($3, ''), nullIf($4, ''), nullIf($5, ''), nullIf($6, ''),
 			$7, $8::uuid, nullIf($9, ''), nullIf($10, ''), $11, $12, $13,
 			nullIf($14, ''), $15,
-			$16, nullIf($17, ''), $18, $19, $20
+			$16, nullIf($17, ''), $18, 0, NULL, $19, $20
 		)`,
 		t.ID(), string(t.Source()), t.ProviderID(), t.ExternalTransactionID(), t.IdempotencyKey(), t.PayloadHash(),
 		t.PlayerID(), t.WalletID(), t.RoundID(), t.GameID(), string(t.Kind()), t.Money().Units(), string(t.Money().Currency()),
@@ -61,6 +63,10 @@ func (r *TransactionRepo) Insert(ctx context.Context, t *domain.WagerTransaction
 		string(t.Status()), t.FailureCode(), resultUnits, t.CreatedAt(), t.UpdatedAt(),
 	)
 	if err != nil {
+		if isUniqueViolation(err, "wager_transactions_idempotency_key_unique") ||
+			isUniqueViolation(err, "wager_transactions_provider_external_unique") {
+			return domain.ErrIdempotencyConflict
+		}
 		return fmt.Errorf("postgres: insert transaction: %w", err)
 	}
 	return nil
@@ -83,9 +89,11 @@ func (r *TransactionRepo) Update(ctx context.Context, t *domain.WagerTransaction
 	tag, err := q.Exec(ctx,
 		`UPDATE wager_transactions SET
 			status = $2, failure_code = nullIf($3, ''), result_balance_units = $4,
-			resolved_reference_transaction_id = $5, updated_at = $6
+			resolved_reference_transaction_id = $5, updated_at = $6,
+			reference_attempts = $7, next_reference_attempt_at = $8
 		WHERE id = $1::uuid`,
 		t.ID(), string(t.Status()), t.FailureCode(), resultUnits, resolvedRef, t.UpdatedAt(),
+		t.ReferenceAttempts(), t.NextReferenceAttempt(),
 	)
 	if err != nil {
 		return fmt.Errorf("postgres: update transaction: %w", err)
@@ -121,12 +129,39 @@ func (r *TransactionRepo) GetByProviderExternal(ctx context.Context, providerID,
 // oldest update, feeding the reference-resolution worker with backoff.
 func (r *TransactionRepo) ListPendingReference(ctx context.Context, limit int) ([]*domain.WagerTransaction, error) {
 	q := QuerierFor(ctx, r.pool)
-	rows, err := q.Query(ctx, `SELECT `+txColumns+` FROM wager_transactions WHERE status = 'PENDING_REFERENCE' ORDER BY updated_at ASC LIMIT $1`, limit)
+	rows, err := q.Query(ctx,
+		`SELECT `+txColumns+` FROM wager_transactions
+		WHERE status = 'PENDING_REFERENCE' AND (next_reference_attempt_at IS NULL OR next_reference_attempt_at <= now())
+		ORDER BY COALESCE(next_reference_attempt_at, created_at) ASC LIMIT $1`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: list pending reference: %w", err)
 	}
 	defer rows.Close()
 
+	var out []*domain.WagerTransaction
+	for rows.Next() {
+		tx, err := scanTransactionRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, tx)
+	}
+	return out, rows.Err()
+}
+
+// ListByReference returns all transactions referencing an external id.
+func (r *TransactionRepo) ListByReference(ctx context.Context, providerID, referenceExternalTransactionID string) ([]*domain.WagerTransaction, error) {
+	q := QuerierFor(ctx, r.pool)
+	rows, err := q.Query(ctx,
+		`SELECT `+txColumns+` FROM wager_transactions
+		WHERE provider_id = $1 AND reference_external_transaction_id = $2
+		ORDER BY created_at ASC`,
+		providerID, referenceExternalTransactionID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: list by reference: %w", err)
+	}
+	defer rows.Close()
 	var out []*domain.WagerTransaction
 	for rows.Next() {
 		tx, err := scanTransactionRow(rows)
@@ -150,13 +185,16 @@ func scanTransactionRow(row pgx.Row) (*domain.WagerTransaction, error) {
 		resolvedRef                                                     *string
 		moneyUnits                                                      int64
 		resultUnits                                                     *int64
+		referenceAttempts                                               int
+		nextReferenceAttempt                                            *time.Time
 		createdAt, updatedAt                                            time.Time
 	)
 	if err := row.Scan(&id, &source, &providerID, &externalID, &idempotencyKey, &payloadHash,
 		&playerID, &walletID, &roundID, &gameID,
 		&kind, &moneyUnits, &currency,
 		&referenceExternalID, &resolvedRef,
-		&status, &failureCode, &resultUnits, &createdAt, &updatedAt); err != nil {
+		&status, &failureCode, &resultUnits,
+		&referenceAttempts, &nextReferenceAttempt, &createdAt, &updatedAt); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrNotFound
 		}
@@ -185,6 +223,8 @@ func scanTransactionRow(row pgx.Row) (*domain.WagerTransaction, error) {
 		Status:                         domain.Status(status),
 		FailureCode:                    failureCode,
 		ResultBalance:                  resultBalance,
+		ReferenceAttempts:              referenceAttempts,
+		NextReferenceAttempt:           nextReferenceAttempt,
 		CreatedAt:                      createdAt,
 		UpdatedAt:                      updatedAt,
 	})

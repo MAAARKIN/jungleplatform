@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -16,7 +18,9 @@ import (
 
 	"github.com/maaarkin/jungleplatform/internal/domain"
 	"github.com/maaarkin/jungleplatform/internal/outbox"
+	"github.com/maaarkin/jungleplatform/internal/pendingref"
 	"github.com/maaarkin/jungleplatform/internal/platform/config"
+	"github.com/maaarkin/jungleplatform/internal/platform/metrics"
 	"github.com/maaarkin/jungleplatform/internal/transport/sqsconsumer"
 	"github.com/maaarkin/jungleplatform/internal/usecase"
 )
@@ -58,11 +62,25 @@ func newSQSClient(cfg config.Config) (*sqs.Client, error) {
 // workerProviders serve the background workers only.
 func workerProviders() []any {
 	return []any{
+		metrics.New(prometheus.DefaultRegisterer),
 		newSQSClient,
 		newConsumer,
 		newOutboxPublisher,
+		newPendingRefWorker,
 		newWorkerHook,
 	}
+}
+
+// newPendingRefWorker builds the reference-resolution worker.
+func newPendingRefWorker(
+	pool *pgxpool.Pool,
+	tx domain.TxManager,
+	transactions domain.TransactionRepo,
+	process *usecase.ProcessWager,
+	cfg config.Config,
+	log *slog.Logger,
+) *pendingref.Worker {
+	return pendingref.NewWorker(pool, tx, transactions, process, cfg.PendingRefTTL, 50, log, time.Second)
 }
 
 // newOutboxPublisher builds the competing publisher for the events queue.
@@ -72,8 +90,9 @@ func newOutboxPublisher(
 	client *sqs.Client,
 	cfg config.Config,
 	log *slog.Logger,
+	m *metrics.Registry,
 ) *outbox.Publisher {
-	return outbox.NewPublisher(pool, repo, client, cfg.EventsQueueURL, "outbox-publisher", log, time.Second)
+	return outbox.NewPublisher(pool, repo, client, cfg.EventsQueueURL, "outbox-publisher", log, time.Second, m)
 }
 
 func newConsumer(
@@ -83,8 +102,9 @@ func newConsumer(
 	inbox domain.InboxRepo,
 	tx domain.TxManager,
 	log *slog.Logger,
+	m *metrics.Registry,
 ) *sqsconsumer.Consumer {
-	return sqsconsumer.NewConsumer(client, cfg.SQSQueueURL, sqsConsumerName, process, inbox, tx, log, 10)
+	return sqsconsumer.NewConsumer(client, cfg.SQSQueueURL, sqsConsumerName, process, inbox, tx, log, 10, m)
 }
 
 // workerHook owns the context that stops the workers on shutdown.
@@ -104,6 +124,7 @@ type workerDeps struct {
 	Hook      *workerHook
 	Consumer  *sqsconsumer.Consumer
 	Publisher *outbox.Publisher
+	RefWorker *pendingref.Worker
 }
 
 func runWorkers(d workerDeps) {
@@ -114,6 +135,7 @@ func runWorkers(d workerDeps) {
 			d.Hook.started = true
 			go func() { d.Hook.done <- d.Consumer.Run(ctx) }()
 			go func() { d.Hook.done <- d.Publisher.Run(ctx) }()
+			go func() { d.Hook.done <- d.RefWorker.Run(ctx) }()
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {
